@@ -51,6 +51,12 @@ const ELITES = {
   RNE: 'Reconocimiento Élite',
 };
 
+/* NOMBRES ICÓNICOS disponibles (desplegable). Cada uno lo puede tener un solo miembro. */
+const ICONICOS = [
+  'Bacara', 'Blackout', 'Keller', 'Jet', 'Levet', 'Ki Adi Mundi', 'Yarael Poof', 'Mark', 'Pluto',
+  'Etal', 'RaceTrack', 'Mustang', 'Spark', 'Ridge', 'Finn', 'Contrail', 'Sixseed', 'Stance',
+];
+
 /* Categorías de los MIEMBROS (en este orden se listan) */
 const CATEGORIAS_MIEMBRO = {
   comandantes:  'Comandantes',

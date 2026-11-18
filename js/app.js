@@ -543,9 +543,9 @@ async function vistaMiembros(cont) {
     </div>
     <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
       <th>Rango</th><th>Nombre clon</th><th>N° clon</th><th>Nombre Jedi</th><th>Nombre icónico</th>
-      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord ID</th><th>Antigüedad en el rango</th><th>Estado</th>${editable ? '<th></th>' : ''}
+      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th><th>Antigüedad en el rango</th><th>Estado</th>${editable ? '<th></th>' : ''}
     </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
-    <p class="ayuda">Clic en un SteamID o Discord ID para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
+    <p class="ayuda">Clic en un SteamID o Discord para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
 
   function filaHTML(m) {
     const ant = antiguedad(m.fecha_rango);
@@ -595,6 +595,18 @@ async function vistaMiembros(cont) {
     $('#cuerpo-miembros').innerHTML = html;
   }
 
+  // Icónicos: los ocupados por otro miembro aparecen deshabilitados con el nombre del portador
+  function opcionesIconico(m) {
+    const actual = tieneIconico(m) ? m.nombre_iconico : '';
+    const portador = ic => miembros.find(x => x.id !== m.id && tieneIconico(x) && x.nombre_iconico.toLowerCase() === ic.toLowerCase());
+    const enLista = ICONICOS.some(ic => ic.toLowerCase() === actual.toLowerCase());
+    const extra = actual && !enLista ? `<option value="${esc(actual)}" selected>${esc(actual)} (fuera de la lista)</option>` : '';
+    return `<option value="No">No</option>${extra}` + ICONICOS.map(ic => {
+      const p = portador(ic), sel = actual.toLowerCase() === ic.toLowerCase();
+      return `<option value="${esc(ic)}" ${sel ? 'selected' : ''} ${p ? 'disabled' : ''}>${esc(ic)}${p ? ` — ${esc(p.grado)} ${esc(p.nombre)}` : ''}</option>`;
+    }).join('');
+  }
+
   function opcionesRango(actual) {
     const lista = RANGO_MAYOR_PRIMERO ? [...RANGOS_LEGION].reverse() : [...RANGOS_LEGION];
     const i = indiceRango(actual);
@@ -617,11 +629,11 @@ async function vistaMiembros(cont) {
         </div>
         <div class="fila-campos">
           <label class="campo"><span>Nombre Jedi</span><input name="nombre_jedi" maxlength="60" value="${esc(m.nombre_jedi)}" placeholder="Vacío si no tiene"></label>
-          <label class="campo"><span>Nombre icónico</span><input name="nombre_iconico" maxlength="60" value="${esc(tieneIconico(m) ? m.nombre_iconico : '')}" placeholder="No"></label>
+          <label class="campo"><span>Nombre icónico</span><select name="nombre_iconico">${opcionesIconico(m)}</select></label>
         </div>
         <div class="fila-campos">
           <label class="campo"><span>Élite</span><select name="elite"><option value="">No</option>${Object.entries(ELITES).map(([k, t]) => `<option value="${k}">${k} · ${esc(t)}</option>`).join('')}</select></label>
-          <label class="campo"><span>Discord ID</span><input name="discord_id" maxlength="25" inputmode="numeric" class="mono" value="${esc(m.discord_id)}" placeholder="Ej: 123456789012345678"></label>
+          <label class="campo"><span>Discord</span><input name="discord_id" maxlength="40" class="mono" value="${esc(m.discord_id)}" placeholder="Usuario o ID, ej: agustinto"></label>
         </div>
         <div class="fila-campos">
           <label class="campo"><span>SteamID</span><input name="steam_id" maxlength="40" class="mono" value="${esc(m.steam_id)}" placeholder="STEAM_0:0:123456"></label>
@@ -649,14 +661,14 @@ async function vistaMiembros(cont) {
           return;
         }
         const did = f.discord_id.value.trim();
-        if (did && !/^\d{15,21}$/.test(did)) { aviso('El Discord ID son solo números (17 a 19 dígitos).', 'error'); return; }
+        if (did && /\s/.test(did)) { aviso('El Discord no puede tener espacios.', 'error'); return; }
         const repetido = sid && miembros.find(x => x.id !== m.id && x.steam_id === sid);
         if (repetido && !await confirmar('SteamID repetido', `${repetido.grado} ${repetido.nombre} ya tiene ese SteamID. ¿Guardar igual?`, 'Guardar igual')) return formulario(m);
         try {
           const g = await api.guardarMiembro({ ...(m.id ? { id: m.id } : {}),
             nombre: f.nombre.value.trim(), grado: f.grado.value.trim(), categoria: f.categoria.value,
             numero_clon: f.numero_clon.value.trim(), nombre_jedi: f.nombre_jedi.value.trim(),
-            nombre_iconico: f.nombre_iconico.value.trim() || 'No', elite: f.elite.value, discord_id: did,
+            nombre_iconico: f.nombre_iconico.value || 'No', elite: f.elite.value, discord_id: did,
             steam_id: sid, steam_id64: s64, fecha_rango: f.fecha_rango.value || null,
             notas: f.notas.value.trim(), activo: f.activo.checked });
           miembros = ordenarMiembros(m.id ? miembros.map(x => x.id === g.id ? g : x) : [...miembros, g]);
@@ -668,7 +680,7 @@ async function vistaMiembros(cont) {
 
   function exportarCSV() {
     const enc = ['Rango', 'Nombre clon', 'N° clon', 'Nombre Jedi', 'Nombre icónico', 'Categoría', 'Élite',
-      'SteamID', 'SteamID64', 'Discord ID', 'En el rango desde', 'Antigüedad en el rango', 'Estado', 'Notas'];
+      'SteamID', 'SteamID64', 'Discord', 'En el rango desde', 'Antigüedad en el rango', 'Estado', 'Notas'];
     const filas = filtrados().map(m => [m.grado, m.nombre, m.numero_clon, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
       CATEGORIAS_MIEMBRO[m.categoria] || m.categoria, ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id, m.fecha_rango || '',
       antiguedad(m.fecha_rango), m.activo ? 'Activo' : 'Inactivo', m.notas]);

@@ -20,6 +20,7 @@ function crearApiSupabase() {
     if (/Password should be at least/i.test(m)) return new Error('La contraseña debe tener al menos 6 caracteres.');
     if (/row-level security/i.test(m)) return new Error('No tenés permiso para hacer esto.');
     if (/bloqueada/i.test(m)) return new Error('La celda está bloqueada.');
+    if (/miembros_iconico_unico/i.test(m)) return new Error('Ese nombre icónico ya lo tiene otro miembro.');
     return new Error(m);
   }
 
