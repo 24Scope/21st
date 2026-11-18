@@ -28,16 +28,24 @@ insert into public.ajustes (clave, valor) values ('modo_abierto', 'true')
 
 -- ---------------------------------------------------------------------
 -- 3. MIEMBROS DE LA LEGIÓN
---    categoria: suboficiales | oficiales | elites | tropas
+--    categoria: comandantes | oficiales | suboficiales | elites | tropas
+--    nombre = nombre clon
 -- ---------------------------------------------------------------------
 create table if not exists public.miembros (
-  id         bigint generated always as identity primary key,
-  nombre     text not null,
-  categoria  text not null,
-  grado      text default '',
-  notas      text default '',
-  activo     boolean not null default true,
-  creado_en  timestamptz not null default now()
+  id              bigint generated always as identity primary key,
+  nombre          text not null,
+  categoria       text not null,
+  grado           text default '',
+  numero_clon     text default '',
+  nombre_jedi     text default '',
+  nombre_iconico  text default 'No',
+  steam_id        text default '',
+  steam_id64      text default '',
+  job             text default '',
+  fecha_rango     date,
+  notas           text default '',
+  activo          boolean not null default true,
+  creado_en       timestamptz not null default now()
 );
 
 -- ---------------------------------------------------------------------

@@ -170,7 +170,7 @@ async function vistaInicio(cont) {
   const mesActual = hoy.getMonth() + 1;
 
   const tarjetas = Object.entries(CATEGORIAS).map(([clave, cat]) => {
-    const cant = miembros.filter(m => m.categoria === clave && m.activo).length;
+    const cant = miembros.filter(m => cat.incluye.includes(m.categoria) && m.activo).length;
     const numericas = new Set(cat.columnas.filter(c => c.tipo === 'numero').map(c => c.clave));
     const total = regs.filter(r => r.categoria === clave && r.mes === mesActual && numericas.has(r.columna))
       .reduce((s, r) => s + numero(r.valor), 0);
@@ -221,7 +221,7 @@ async function vistaRegistro(cat) {
     <div class="barra-formula"><div class="ref" id="f-ref">—</div><div class="fx">fx</div><div class="val" id="f-val"></div><div class="estado-guardado" id="f-estado"></div></div>
     <div class="hoja-contenedor" id="hoja-cont" tabindex="0"></div>
     <p class="ayuda">Clic para seleccionar · <kbd>Doble clic</kbd> o empezá a escribir para editar · <kbd>Enter</kbd> guarda y baja · <kbd>Tab</kbd> guarda y avanza · <kbd>Supr</kbd> borra · <kbd>Esc</kbd> cancela · <kbd>Ctrl</kbd>+<kbd>B</kbd> bloquea/desbloquea.
-    Los miembros salen de <a href="#/miembros">Miembros de la legión</a> (categoría ${esc(config.titulo)}).</p>`;
+    Los miembros salen de <a href="#/miembros">Miembros de la legión</a> (categoría ${config.incluye.map(c => esc(CATEGORIAS_MIEMBRO[c] || c)).join(' y ')}).</p>`;
 
   const editable = puedeEditar();
   ['#btn-bloq-celda', '#btn-bloq-mes', '#btn-desbloq-mes'].forEach(s => { $(s).hidden = !editable; });
@@ -236,7 +236,8 @@ async function vistaRegistro(cat) {
     const [miembros, regs] = await Promise.all([api.listarMiembros(), api.listarRegistros(cat, estado.anio, estado.mes)]);
     hoja.celdas = new Map(regs.map(r => [clave(r.miembro_id, r.columna), r]));
     const conDatos = new Set(regs.filter(r => r.valor !== null && r.valor !== '').map(r => r.miembro_id));
-    hoja.filas = miembros.filter(m => m.categoria === cat && (m.activo || conDatos.has(m.id)));
+    hoja.filas = miembros.filter(m => config.incluye.includes(m.categoria) && (m.activo || conDatos.has(m.id)))
+      .sort((a, b) => config.incluye.indexOf(a.categoria) - config.incluye.indexOf(b.categoria) || a.nombre.localeCompare(b.nombre));
     hoja.sel = { f: Math.min(hoja.sel.f, Math.max(hoja.filas.length - 1, 0)), c: Math.min(hoja.sel.c, config.columnas.length - 1) };
     pintar();
   }
@@ -473,84 +474,204 @@ async function vistaRegistro(cat) {
 }
 
 /* ============================================================ MIEMBROS */
+const ORDEN_CAT = Object.keys(CATEGORIAS_MIEMBRO);
+const BASE_STEAM = 76561197960265728n;
+
+// STEAM_0:X:Y  ->  SteamID64
+function steamA64(id) {
+  const m = /^STEAM_[0-5]:([01]):(\d+)$/i.exec(String(id || '').trim());
+  return m ? String(BASE_STEAM + BigInt(m[2]) * 2n + BigInt(m[1])) : '';
+}
+// SteamID64  ->  STEAM_0:X:Y
+function steamDesde64(s) {
+  const t = String(s || '').trim();
+  if (!/^7656119\d{10}$/.test(t)) return '';
+  const v = BigInt(t) - BASE_STEAM;
+  return `STEAM_0:${v % 2n}:${v / 2n}`;
+}
+
+// Tiempo transcurrido desde una fecha (AAAA-MM-DD), en lenguaje natural
+function antiguedad(fecha) {
+  if (!fecha) return '';
+  const d = new Date(fecha + 'T00:00:00'), h = new Date();
+  h.setHours(0, 0, 0, 0);
+  if (d > h) return 'desde el ' + d.toLocaleDateString('es-AR');
+  let meses = (h.getFullYear() - d.getFullYear()) * 12 + h.getMonth() - d.getMonth();
+  if (h.getDate() < d.getDate()) meses--;
+  const ref = new Date(d); ref.setMonth(ref.getMonth() + meses);
+  const dias = Math.round((h - ref) / 864e5);
+  const anios = Math.floor(meses / 12); meses %= 12;
+  const u = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+  if (anios) return u(anios, 'año', 'años') + (meses ? ', ' + u(meses, 'mes', 'meses') : '');
+  if (meses) return u(meses, 'mes', 'meses') + (dias ? ', ' + u(dias, 'día', 'días') : '');
+  return dias ? u(dias, 'día', 'días') : 'hoy';
+}
+
+const tieneIconico = m => !!m.nombre_iconico && m.nombre_iconico.trim().toLowerCase() !== 'no';
+const ordenarMiembros = lista => lista.sort((a, b) =>
+  ORDEN_CAT.indexOf(a.categoria) - ORDEN_CAT.indexOf(b.categoria) || a.nombre.localeCompare(b.nombre));
+
 async function vistaMiembros(cont) {
-  let miembros = await api.listarMiembros();
+  let miembros = ordenarMiembros(await api.listarMiembros());
   const filtro = { texto: '', cat: '' };
   const editable = puedeEditar();
-  const opcionesCat = Object.entries(CATEGORIAS).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
+  const opcionesCat = Object.entries(CATEGORIAS_MIEMBRO).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('');
+  const nCols = editable ? 11 : 10;
 
   cont.innerHTML = `
-    <div class="rejilla" id="resumen-miembros" style="margin-bottom:18px"></div>
+    <div class="rejilla" id="resumen-miembros" style="margin-bottom:18px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
     <div class="herramientas">
-      <input class="entrada" id="buscar" placeholder="Buscar por nombre o grado…" style="max-width:280px">
-      <select class="entrada" id="filtro-cat" style="max-width:240px"><option value="">Todas las categorías</option>${opcionesCat}</select>
+      <input class="entrada" id="buscar" placeholder="Buscar nombre, rango, N° clon, SteamID, job…" style="max-width:320px">
+      <select class="entrada" id="filtro-cat" style="max-width:220px"><option value="">Todas las categorías</option>${opcionesCat}</select>
       <span class="espacio"></span>
+      <button class="btn chico" id="btn-csv-miembros">Exportar CSV</button>
       ${editable ? '<button class="btn primario" id="btn-nuevo">+ Agregar miembro</button>' : ''}
     </div>
-    <div class="envoltorio-tabla"><table class="datos"><thead><tr>
-      <th>Nombre</th><th>Categoría</th><th>Grado</th><th>Estado</th><th>Notas</th>${editable ? '<th></th>' : ''}
-    </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>`;
+    <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
+      <th>Rango</th><th>Nombre clon</th><th>N° clon</th><th>Nombre Jedi</th><th>Nombre icónico</th>
+      <th>Categoría</th><th>Job habitual</th><th>SteamID</th><th>Antigüedad en el rango</th><th>Estado</th>${editable ? '<th></th>' : ''}
+    </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
+    <p class="ayuda">Clic en un SteamID para copiarlo · el SteamID64 abre el perfil de Steam.</p>`;
 
-  function pintar() {
-    $('#resumen-miembros').innerHTML = Object.entries(CATEGORIAS).map(([k, c]) =>
-      `<div class="tarjeta"><div class="dato-grande">${miembros.filter(m => m.categoria === k && m.activo).length}</div>
-       <div class="dato-etiqueta">${esc(c.titulo)}</div></div>`).join('');
-    const t = filtro.texto.toLowerCase();
-    const lista = miembros.filter(m => (!filtro.cat || m.categoria === filtro.cat)
-      && (!t || m.nombre.toLowerCase().includes(t) || (m.grado || '').toLowerCase().includes(t)));
-    $('#cuerpo-miembros').innerHTML = lista.length ? lista.map(m => `<tr>
-      <td><strong>${esc(m.nombre)}</strong></td>
-      <td>${esc(CATEGORIAS[m.categoria]?.titulo || m.categoria)}</td>
-      <td>${esc(m.grado)}</td>
+  function filaHTML(m) {
+    const ant = antiguedad(m.fecha_rango);
+    return `<tr class="${m.activo ? '' : 'fila-inactiva'}">
+      <td><strong>${esc(m.grado) || '—'}</strong></td>
+      <td><strong>${esc(m.nombre)}</strong>${m.notas ? ` <span class="nota" title="${esc(m.notas)}">ⓘ</span>` : ''}</td>
+      <td class="mono">${esc(m.numero_clon) || '—'}</td>
+      <td>${esc(m.nombre_jedi) || '<span class="tenue">—</span>'}</td>
+      <td>${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : '<span class="tenue">No</span>'}</td>
+      <td>${esc(CATEGORIAS_MIEMBRO[m.categoria] || m.categoria)}</td>
+      <td>${esc(m.job) || '—'}</td>
+      <td class="steam">${m.steam_id ? `<button class="copiar mono" data-copiar="${esc(m.steam_id)}" title="Copiar">${esc(m.steam_id)}</button>` : '<span class="tenue">—</span>'}
+        ${m.steam_id64 ? `<a class="sub mono" href="https://steamcommunity.com/profiles/${esc(m.steam_id64)}" target="_blank" rel="noopener noreferrer">${esc(m.steam_id64)}</a>` : ''}</td>
+      <td>${ant ? `${esc(ant)}<span class="sub">desde ${new Date(m.fecha_rango + 'T00:00:00').toLocaleDateString('es-AR')}</span>` : '<span class="tenue">Sin fecha</span>'}</td>
       <td><span class="etiqueta ${m.activo ? 'admin' : ''}">${m.activo ? 'Activo' : 'Inactivo'}</span></td>
-      <td style="color:var(--texto-2)">${esc(m.notas)}</td>
       ${editable ? `<td class="acciones"><button class="btn chico" data-editar="${m.id}">Editar</button>
         <button class="btn chico peligro" data-borrar="${m.id}">Borrar</button></td>` : ''}
-    </tr>`).join('') : `<tr><td colspan="6" class="vacio">${miembros.length ? 'Ningún miembro coincide con el filtro.' : 'Todavía no hay miembros cargados.'}</td></tr>`;
+    </tr>`;
   }
 
-  function formulario(m = { nombre: '', categoria: filtro.cat || 'tropas', grado: '', notas: '', activo: true }) {
-    abrirModal(m.id ? 'Editar miembro' : 'Agregar miembro', `
+  function filtrados() {
+    const t = filtro.texto.trim().toLowerCase();
+    return miembros.filter(m => (!filtro.cat || m.categoria === filtro.cat) && (!t ||
+      [m.nombre, m.grado, m.numero_clon, m.nombre_jedi, m.nombre_iconico, m.job, m.steam_id, m.steam_id64]
+        .some(v => String(v || '').toLowerCase().includes(t))));
+  }
+
+  function pintar() {
+    $('#resumen-miembros').innerHTML = Object.entries(CATEGORIAS_MIEMBRO).map(([k, t]) =>
+      `<div class="tarjeta tarjeta-link" data-cat="${k}"><div class="dato-grande">${miembros.filter(m => m.categoria === k && m.activo).length}</div>
+       <div class="dato-etiqueta">${esc(t)}</div></div>`).join('');
+    const lista = filtrados();
+    if (!lista.length) {
+      $('#cuerpo-miembros').innerHTML = `<tr><td colspan="${nCols}" class="vacio">${miembros.length ? 'Ningún miembro coincide con el filtro.' : 'Todavía no hay miembros cargados.'}</td></tr>`;
+      return;
+    }
+    let html = '';
+    for (const cat of ORDEN_CAT) {
+      const grupo = lista.filter(m => m.categoria === cat);
+      if (!grupo.length) continue;
+      html += `<tr class="fila-grupo"><td colspan="${nCols}">${esc(CATEGORIAS_MIEMBRO[cat])} <span>${grupo.length}</span></td></tr>`;
+      html += grupo.map(filaHTML).join('');
+    }
+    const otros = lista.filter(m => !ORDEN_CAT.includes(m.categoria));
+    if (otros.length) html += `<tr class="fila-grupo"><td colspan="${nCols}">Sin categoría <span>${otros.length}</span></td></tr>` + otros.map(filaHTML).join('');
+    $('#cuerpo-miembros').innerHTML = html;
+  }
+
+  function formulario(m = { nombre: '', categoria: filtro.cat || 'suboficiales', grado: '', numero_clon: '', nombre_jedi: '',
+    nombre_iconico: 'No', steam_id: '', steam_id64: '', job: '', fecha_rango: '', notas: '', activo: true }) {
+    abrirModal(m.id ? `Editar · ${m.grado || ''} ${m.nombre}` : 'Agregar miembro', `
       <form id="form-miembro">
-        <label class="campo"><span>Nombre</span><input name="nombre" required maxlength="80" value="${esc(m.nombre)}"></label>
         <div class="fila-campos">
-          <label class="campo"><span>Categoría (registro donde aparece)</span><select name="categoria">${opcionesCat}</select></label>
-          <label class="campo"><span>Grado</span><input name="grado" maxlength="60" value="${esc(m.grado)}" placeholder="Ej: Sargento"></label>
+          <label class="campo"><span>Rango</span><input name="grado" maxlength="30" value="${esc(m.grado)}" placeholder="Ej: SGT, TTE°1, MRL"></label>
+          <label class="campo"><span>Nombre clon *</span><input name="nombre" required maxlength="60" value="${esc(m.nombre)}"></label>
         </div>
+        <div class="fila-campos">
+          <label class="campo"><span>N° de clon</span><input name="numero_clon" maxlength="10" inputmode="numeric" value="${esc(m.numero_clon)}"></label>
+          <label class="campo"><span>Categoría</span><select name="categoria">${opcionesCat}</select></label>
+        </div>
+        <div class="fila-campos">
+          <label class="campo"><span>Nombre Jedi</span><input name="nombre_jedi" maxlength="60" value="${esc(m.nombre_jedi)}" placeholder="Vacío si no tiene"></label>
+          <label class="campo"><span>Nombre icónico</span><input name="nombre_iconico" maxlength="60" value="${esc(tieneIconico(m) ? m.nombre_iconico : '')}" placeholder="No"></label>
+        </div>
+        <label class="campo"><span>Job habitual</span><input name="job" maxlength="80" value="${esc(m.job)}" placeholder="Ej: BU Reconocimiento"></label>
+        <div class="fila-campos">
+          <label class="campo"><span>SteamID</span><input name="steam_id" maxlength="40" class="mono" value="${esc(m.steam_id)}" placeholder="STEAM_0:0:123456"></label>
+          <label class="campo"><span>SteamID64</span><input name="steam_id64" maxlength="20" class="mono" value="${esc(m.steam_id64)}" placeholder="7656119…"></label>
+        </div>
+        <p class="ayuda" id="aviso-steam" style="margin:-6px 0 12px">Completá uno de los dos y el otro se calcula solo.</p>
+        <label class="campo"><span>En el rango actual desde</span><input name="fecha_rango" type="date" value="${esc(m.fecha_rango || '')}"></label>
         <label class="campo"><span>Notas</span><textarea name="notas" maxlength="500">${esc(m.notas)}</textarea></label>
         <label class="interruptor" style="margin-bottom:16px"><input type="checkbox" name="activo" ${m.activo ? 'checked' : ''}>
           <span>Activo<br><small style="color:var(--texto-3)">Los inactivos no aparecen en las tablas, salvo en los meses donde tengan datos.</small></span></label>
         <div class="modal-pie"><button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn primario">Guardar</button></div>
       </form>`, c => {
-      $('[name=categoria]', c).value = m.categoria;
+      const f = $('#form-miembro', c);
+      f.categoria.value = m.categoria;
       $('[data-cancelar]', c).onclick = cerrarModal;
-      $('#form-miembro', c).onsubmit = async ev => {
+      f.steam_id.oninput = () => { const v = steamA64(f.steam_id.value); if (v) f.steam_id64.value = v; };
+      f.steam_id64.oninput = () => { const v = steamDesde64(f.steam_id64.value); if (v) f.steam_id.value = v; };
+      f.onsubmit = async ev => {
         ev.preventDefault();
-        const f = ev.target;
+        const sid = f.steam_id.value.trim(), s64 = f.steam_id64.value.trim();
+        if (sid && s64 && steamA64(sid) && steamA64(sid) !== s64) {
+          $('#aviso-steam', c).innerHTML = `<span style="color:var(--peligro)">El SteamID y el SteamID64 no coinciden. Para ${esc(sid)} el correcto es ${steamA64(sid)}.</span>`;
+          return;
+        }
+        const repetido = sid && miembros.find(x => x.id !== m.id && x.steam_id === sid);
+        if (repetido && !await confirmar('SteamID repetido', `${repetido.grado} ${repetido.nombre} ya tiene ese SteamID. ¿Guardar igual?`, 'Guardar igual')) return formulario(m);
         try {
-          const g = await api.guardarMiembro({ ...(m.id ? { id: m.id } : {}), nombre: f.nombre.value.trim(),
-            categoria: f.categoria.value, grado: f.grado.value.trim(), notas: f.notas.value.trim(), activo: f.activo.checked });
-          miembros = m.id ? miembros.map(x => x.id === g.id ? g : x) : [...miembros, g];
-          miembros.sort((a, b) => a.nombre.localeCompare(b.nombre));
+          const g = await api.guardarMiembro({ ...(m.id ? { id: m.id } : {}),
+            nombre: f.nombre.value.trim(), grado: f.grado.value.trim(), categoria: f.categoria.value,
+            numero_clon: f.numero_clon.value.trim(), nombre_jedi: f.nombre_jedi.value.trim(),
+            nombre_iconico: f.nombre_iconico.value.trim() || 'No', job: f.job.value.trim(),
+            steam_id: sid, steam_id64: s64, fecha_rango: f.fecha_rango.value || null,
+            notas: f.notas.value.trim(), activo: f.activo.checked });
+          miembros = ordenarMiembros(m.id ? miembros.map(x => x.id === g.id ? g : x) : [...miembros, g]);
           cerrarModal(); pintar(); aviso('Miembro guardado.');
         } catch (e) { fallo(e); }
       };
     });
   }
 
+  function exportarCSV() {
+    const enc = ['Rango', 'Nombre clon', 'N° clon', 'Nombre Jedi', 'Nombre icónico', 'Categoría', 'Job habitual',
+      'SteamID', 'SteamID64', 'En el rango desde', 'Antigüedad en el rango', 'Estado', 'Notas'];
+    const filas = filtrados().map(m => [m.grado, m.nombre, m.numero_clon, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
+      CATEGORIAS_MIEMBRO[m.categoria] || m.categoria, m.job, m.steam_id, m.steam_id64, m.fecha_rango || '',
+      antiguedad(m.fecha_rango), m.activo ? 'Activo' : 'Inactivo', m.notas]);
+    // El ="..." evita que Excel convierta el SteamID64 en notación científica
+    descargar('miembros_legion.csv', [enc, ...filas].map(r => r.map((v, i) => i === 8 && v ? `="${v}"` : celdaCSV(v)).join(';')).join('\r\n'));
+  }
+
   $('#buscar').oninput = e => { filtro.texto = e.target.value; pintar(); };
   $('#filtro-cat').onchange = e => { filtro.cat = e.target.value; pintar(); };
+  $('#resumen-miembros').onclick = ev => {
+    const t = ev.target.closest('[data-cat]'); if (!t) return;
+    filtro.cat = filtro.cat === t.dataset.cat ? '' : t.dataset.cat; $('#filtro-cat').value = filtro.cat; pintar();
+  };
+  $('#btn-csv-miembros').onclick = exportarCSV;
   if (editable) $('#btn-nuevo').onclick = () => formulario();
   $('#cuerpo-miembros').onclick = async ev => {
+    const cp = ev.target.closest('[data-copiar]');
+    if (cp) {
+      try { await navigator.clipboard.writeText(cp.dataset.copiar); aviso('SteamID copiado.'); } catch { aviso('No se pudo copiar.', 'error'); }
+      return;
+    }
     const ed = ev.target.closest('[data-editar]'), bo = ev.target.closest('[data-borrar]');
     if (ed) formulario(miembros.find(m => m.id == ed.dataset.editar));
     if (bo) {
       const m = miembros.find(x => x.id == bo.dataset.borrar);
-      if (!await confirmar('Borrar miembro', `¿Borrar a ${m.nombre}? También se borran TODOS sus registros de actividad. Si solo dejó la legión, mejor marcalo como inactivo.`, 'Borrar')) return;
+      if (!await confirmar('Borrar miembro', `¿Borrar a ${m.grado} ${m.nombre}? También se borran TODOS sus registros de actividad. Si solo dejó la legión, mejor marcalo como inactivo.`, 'Borrar')) return;
       try { await api.borrarMiembro(m.id); miembros = miembros.filter(x => x.id !== m.id); pintar(); aviso('Miembro borrado.'); } catch (e) { fallo(e); }
     }
   };
-  estado.limpiezas.push(api.suscribir('miembros', async () => { try { miembros = await api.listarMiembros(); pintar(); } catch {} }));
+  estado.limpiezas.push(api.suscribir('miembros', async () => {
+    if (!$('#modal-fondo').hidden) return;
+    try { miembros = ordenarMiembros(await api.listarMiembros()); pintar(); } catch {}
+  }));
   pintar();
 }
 

@@ -32,11 +32,21 @@ const COLUMNAS_BASE = [
   { clave: 'observaciones',      nombre: 'Observaciones',         tipo: 'texto'  },
 ];
 
+/* Categorías de los MIEMBROS (en este orden se listan) */
+const CATEGORIAS_MIEMBRO = {
+  comandantes:  'Comandantes',
+  oficiales:    'Oficiales',
+  suboficiales: 'Suboficiales',
+  elites:       'Élites',
+  tropas:       'Tropas',
+};
+
+/* Registros de actividad. "incluye" = qué categorías de miembros aparecen en esa tabla */
 const CATEGORIAS = {
-  suboficiales: { titulo: 'Suboficiales',              columnas: COLUMNAS_BASE },
-  oficiales:    { titulo: 'Oficiales y Comandantes',   columnas: COLUMNAS_BASE },
-  elites:       { titulo: 'Élites',                    columnas: COLUMNAS_BASE },
-  tropas:       { titulo: 'Tropas',                    columnas: COLUMNAS_BASE },
+  suboficiales: { titulo: 'Suboficiales',            incluye: ['suboficiales'],             columnas: COLUMNAS_BASE },
+  oficiales:    { titulo: 'Oficiales y Comandantes', incluye: ['comandantes', 'oficiales'], columnas: COLUMNAS_BASE },
+  elites:       { titulo: 'Élites',                  incluye: ['elites'],                   columnas: COLUMNAS_BASE },
+  tropas:       { titulo: 'Tropas',                  incluye: ['tropas'],                   columnas: COLUMNAS_BASE },
 };
 
 /* 5) COLUMNAS DEL REGLAMENTO DEL CALENDARIO */

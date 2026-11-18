@@ -119,7 +119,7 @@ function crearApiDemo() {
     const db = nuevaBase();
     const ejemplos = [
       ['Pepito', 'suboficiales', 'Sargento'], ['Juan Pérez', 'suboficiales', 'Cabo'],
-      ['Marcos', 'oficiales', 'Teniente'], ['Laura', 'oficiales', 'Comandante'],
+      ['Marcos', 'oficiales', 'TTE'], ['Laura', 'comandantes', 'CMD'],
       ['Nico', 'elites', 'Élite'], ['Sofi', 'tropas', 'Soldado'], ['Tomás', 'tropas', 'Recluta'],
     ];
     for (const [nombre, categoria, grado] of ejemplos)

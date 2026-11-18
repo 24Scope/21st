@@ -267,3 +267,19 @@ table.datos { width: 100%; border-collapse: collapse; background: var(--superfic
   .cal-evento { font-size: 10.5px; padding: 2px 4px; }
   .fila-campos { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------------------------------------ miembros */
+.tabla-miembros td, .tabla-miembros th { white-space: nowrap; }
+.tabla-miembros .fila-grupo td { background: var(--superficie-2); font-weight: 700; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--acento-texto); padding: 8px 14px; }
+.tabla-miembros .fila-grupo span { color: var(--texto-3); font-weight: 600; margin-left: 6px; }
+.tabla-miembros .fila-inactiva td { opacity: .55; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+.sub { display: block; font-size: 11.5px; color: var(--texto-3); margin-top: 2px; }
+a.sub { text-decoration: none; }
+a.sub:hover { color: var(--acento); text-decoration: underline; }
+.tenue { color: var(--texto-3); }
+.nota { color: var(--texto-3); cursor: help; font-size: 12px; }
+.copiar { border: 0; background: transparent; padding: 0; cursor: copy; color: var(--texto); }
+.copiar:hover { color: var(--acento); }
+.campo input.mono { font-size: 13px; }
