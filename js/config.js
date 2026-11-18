@@ -32,6 +32,25 @@ const COLUMNAS_BASE = [
   { clave: 'observaciones',      nombre: 'Observaciones',         tipo: 'texto'  },
 ];
 
+/* RANGOS DE LA LEGIÓN, de MENOR a MAYOR. Las tablas se ordenan con esta lista. */
+const RANGOS_LEGION = ['SGT', 'SGT2', 'SGT1', 'SGTM', 'STTE', 'TTE', 'TTE2', 'TTE1',
+                       'CPT', 'CPT1', 'CPTM', 'CMD', 'CMD1', 'CMDM', 'CMD B', 'MRL'];
+/* true = el rango más alto arriba (MRL primero). false = el más bajo arriba. */
+const RANGO_MAYOR_PRIMERO = true;
+/* Qué categoría se sugiere al elegir un rango en el formulario */
+const CATEGORIA_POR_RANGO = {
+  suboficiales: ['SGT', 'SGT2', 'SGT1', 'SGTM'],
+  oficiales:    ['STTE', 'TTE', 'TTE2', 'TTE1', 'CPT', 'CPT1', 'CPTM'],
+  comandantes:  ['CMD', 'CMD1', 'CMDM', 'CMD B', 'MRL'],
+};
+
+/* ÉLITES (abreviatura: nombre completo). '' = no es élite */
+const ELITES = {
+  ASE: 'Asalto Élite',
+  APE: 'Apoyo Élite',
+  RNE: 'Reconocimiento Élite',
+};
+
 /* Categorías de los MIEMBROS (en este orden se listan) */
 const CATEGORIAS_MIEMBRO = {
   comandantes:  'Comandantes',

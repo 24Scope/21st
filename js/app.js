@@ -237,7 +237,7 @@ async function vistaRegistro(cat) {
     hoja.celdas = new Map(regs.map(r => [clave(r.miembro_id, r.columna), r]));
     const conDatos = new Set(regs.filter(r => r.valor !== null && r.valor !== '').map(r => r.miembro_id));
     hoja.filas = miembros.filter(m => config.incluye.includes(m.categoria) && (m.activo || conDatos.has(m.id)))
-      .sort((a, b) => config.incluye.indexOf(a.categoria) - config.incluye.indexOf(b.categoria) || a.nombre.localeCompare(b.nombre));
+      .sort(compararRango);
     hoja.sel = { f: Math.min(hoja.sel.f, Math.max(hoja.filas.length - 1, 0)), c: Math.min(hoja.sel.c, config.columnas.length - 1) };
     pintar();
   }
@@ -508,20 +508,34 @@ function antiguedad(fecha) {
 }
 
 const tieneIconico = m => !!m.nombre_iconico && m.nombre_iconico.trim().toLowerCase() !== 'no';
+const normRango = g => String(g || '').toUpperCase().replace(/[°º\s]/g, '');
+const RANGOS_NORM = RANGOS_LEGION.map(normRango);
+const indiceRango = g => RANGOS_NORM.indexOf(normRango(g));
+// Ordena por rango (según RANGO_MAYOR_PRIMERO) y después por nombre; rangos desconocidos al final
+function compararRango(a, b) {
+  const ia = indiceRango(a.grado), ib = indiceRango(b.grado);
+  if (ia !== ib) {
+    if (ia < 0) return 1;
+    if (ib < 0) return -1;
+    return RANGO_MAYOR_PRIMERO ? ib - ia : ia - ib;
+  }
+  return a.nombre.localeCompare(b.nombre);
+}
+const categoriaDeRango = g => Object.keys(CATEGORIA_POR_RANGO).find(c => CATEGORIA_POR_RANGO[c].map(normRango).includes(normRango(g)));
 const ordenarMiembros = lista => lista.sort((a, b) =>
-  ORDEN_CAT.indexOf(a.categoria) - ORDEN_CAT.indexOf(b.categoria) || a.nombre.localeCompare(b.nombre));
+  ORDEN_CAT.indexOf(a.categoria) - ORDEN_CAT.indexOf(b.categoria) || compararRango(a, b));
 
 async function vistaMiembros(cont) {
   let miembros = ordenarMiembros(await api.listarMiembros());
   const filtro = { texto: '', cat: '' };
   const editable = puedeEditar();
   const opcionesCat = Object.entries(CATEGORIAS_MIEMBRO).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('');
-  const nCols = editable ? 11 : 10;
+  const nCols = editable ? 12 : 11;
 
   cont.innerHTML = `
     <div class="rejilla" id="resumen-miembros" style="margin-bottom:18px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
     <div class="herramientas">
-      <input class="entrada" id="buscar" placeholder="Buscar nombre, rango, N° clon, SteamID, job…" style="max-width:320px">
+      <input class="entrada" id="buscar" placeholder="Buscar nombre, rango, N° clon, SteamID, Discord, élite…" style="max-width:320px">
       <select class="entrada" id="filtro-cat" style="max-width:220px"><option value="">Todas las categorías</option>${opcionesCat}</select>
       <span class="espacio"></span>
       <button class="btn chico" id="btn-csv-miembros">Exportar CSV</button>
@@ -529,9 +543,9 @@ async function vistaMiembros(cont) {
     </div>
     <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
       <th>Rango</th><th>Nombre clon</th><th>N° clon</th><th>Nombre Jedi</th><th>Nombre icónico</th>
-      <th>Categoría</th><th>Job habitual</th><th>SteamID</th><th>Antigüedad en el rango</th><th>Estado</th>${editable ? '<th></th>' : ''}
+      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord ID</th><th>Antigüedad en el rango</th><th>Estado</th>${editable ? '<th></th>' : ''}
     </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
-    <p class="ayuda">Clic en un SteamID para copiarlo · el SteamID64 abre el perfil de Steam.</p>`;
+    <p class="ayuda">Clic en un SteamID o Discord ID para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
 
   function filaHTML(m) {
     const ant = antiguedad(m.fecha_rango);
@@ -542,9 +556,10 @@ async function vistaMiembros(cont) {
       <td>${esc(m.nombre_jedi) || '<span class="tenue">—</span>'}</td>
       <td>${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : '<span class="tenue">No</span>'}</td>
       <td>${esc(CATEGORIAS_MIEMBRO[m.categoria] || m.categoria)}</td>
-      <td>${esc(m.job) || '—'}</td>
+      <td>${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : '<span class="tenue">No</span>'}</td>
       <td class="steam">${m.steam_id ? `<button class="copiar mono" data-copiar="${esc(m.steam_id)}" title="Copiar">${esc(m.steam_id)}</button>` : '<span class="tenue">—</span>'}
         ${m.steam_id64 ? `<a class="sub mono" href="https://steamcommunity.com/profiles/${esc(m.steam_id64)}" target="_blank" rel="noopener noreferrer">${esc(m.steam_id64)}</a>` : ''}</td>
+      <td>${m.discord_id ? `<button class="copiar mono" data-copiar="${esc(m.discord_id)}" title="Copiar">${esc(m.discord_id)}</button>` : '<span class="tenue">—</span>'}</td>
       <td>${ant ? `${esc(ant)}<span class="sub">desde ${new Date(m.fecha_rango + 'T00:00:00').toLocaleDateString('es-AR')}</span>` : '<span class="tenue">Sin fecha</span>'}</td>
       <td><span class="etiqueta ${m.activo ? 'admin' : ''}">${m.activo ? 'Activo' : 'Inactivo'}</span></td>
       ${editable ? `<td class="acciones"><button class="btn chico" data-editar="${m.id}">Editar</button>
@@ -555,7 +570,7 @@ async function vistaMiembros(cont) {
   function filtrados() {
     const t = filtro.texto.trim().toLowerCase();
     return miembros.filter(m => (!filtro.cat || m.categoria === filtro.cat) && (!t ||
-      [m.nombre, m.grado, m.numero_clon, m.nombre_jedi, m.nombre_iconico, m.job, m.steam_id, m.steam_id64]
+      [m.nombre, m.grado, m.numero_clon, m.nombre_jedi, m.nombre_iconico, m.elite, ELITES[m.elite], m.discord_id, m.steam_id, m.steam_id64]
         .some(v => String(v || '').toLowerCase().includes(t))));
   }
 
@@ -580,12 +595,20 @@ async function vistaMiembros(cont) {
     $('#cuerpo-miembros').innerHTML = html;
   }
 
+  function opcionesRango(actual) {
+    const lista = RANGO_MAYOR_PRIMERO ? [...RANGOS_LEGION].reverse() : [...RANGOS_LEGION];
+    const i = indiceRango(actual);
+    const extra = actual && i < 0 ? `<option value="${esc(actual)}" selected>${esc(actual)} (fuera de la lista)</option>` : '';
+    return `<option value="">— Elegir —</option>${extra}` +
+      lista.map(r => `<option value="${esc(r)}" ${i >= 0 && RANGOS_LEGION[i] === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
+  }
+
   function formulario(m = { nombre: '', categoria: filtro.cat || 'suboficiales', grado: '', numero_clon: '', nombre_jedi: '',
-    nombre_iconico: 'No', steam_id: '', steam_id64: '', job: '', fecha_rango: '', notas: '', activo: true }) {
+    nombre_iconico: 'No', steam_id: '', steam_id64: '', discord_id: '', elite: '', fecha_rango: '', notas: '', activo: true }) {
     abrirModal(m.id ? `Editar · ${m.grado || ''} ${m.nombre}` : 'Agregar miembro', `
       <form id="form-miembro">
         <div class="fila-campos">
-          <label class="campo"><span>Rango</span><input name="grado" maxlength="30" value="${esc(m.grado)}" placeholder="Ej: SGT, TTE°1, MRL"></label>
+          <label class="campo"><span>Rango</span><select name="grado">${opcionesRango(m.grado)}</select></label>
           <label class="campo"><span>Nombre clon *</span><input name="nombre" required maxlength="60" value="${esc(m.nombre)}"></label>
         </div>
         <div class="fila-campos">
@@ -596,7 +619,10 @@ async function vistaMiembros(cont) {
           <label class="campo"><span>Nombre Jedi</span><input name="nombre_jedi" maxlength="60" value="${esc(m.nombre_jedi)}" placeholder="Vacío si no tiene"></label>
           <label class="campo"><span>Nombre icónico</span><input name="nombre_iconico" maxlength="60" value="${esc(tieneIconico(m) ? m.nombre_iconico : '')}" placeholder="No"></label>
         </div>
-        <label class="campo"><span>Job habitual</span><input name="job" maxlength="80" value="${esc(m.job)}" placeholder="Ej: BU Reconocimiento"></label>
+        <div class="fila-campos">
+          <label class="campo"><span>Élite</span><select name="elite"><option value="">No</option>${Object.entries(ELITES).map(([k, t]) => `<option value="${k}">${k} · ${esc(t)}</option>`).join('')}</select></label>
+          <label class="campo"><span>Discord ID</span><input name="discord_id" maxlength="25" inputmode="numeric" class="mono" value="${esc(m.discord_id)}" placeholder="Ej: 123456789012345678"></label>
+        </div>
         <div class="fila-campos">
           <label class="campo"><span>SteamID</span><input name="steam_id" maxlength="40" class="mono" value="${esc(m.steam_id)}" placeholder="STEAM_0:0:123456"></label>
           <label class="campo"><span>SteamID64</span><input name="steam_id64" maxlength="20" class="mono" value="${esc(m.steam_id64)}" placeholder="7656119…"></label>
@@ -610,6 +636,8 @@ async function vistaMiembros(cont) {
       </form>`, c => {
       const f = $('#form-miembro', c);
       f.categoria.value = m.categoria;
+      f.elite.value = ELITES[m.elite] ? m.elite : '';
+      f.grado.onchange = () => { const c = categoriaDeRango(f.grado.value); if (c) f.categoria.value = c; };
       $('[data-cancelar]', c).onclick = cerrarModal;
       f.steam_id.oninput = () => { const v = steamA64(f.steam_id.value); if (v) f.steam_id64.value = v; };
       f.steam_id64.oninput = () => { const v = steamDesde64(f.steam_id64.value); if (v) f.steam_id.value = v; };
@@ -620,13 +648,15 @@ async function vistaMiembros(cont) {
           $('#aviso-steam', c).innerHTML = `<span style="color:var(--peligro)">El SteamID y el SteamID64 no coinciden. Para ${esc(sid)} el correcto es ${steamA64(sid)}.</span>`;
           return;
         }
+        const did = f.discord_id.value.trim();
+        if (did && !/^\d{15,21}$/.test(did)) { aviso('El Discord ID son solo números (17 a 19 dígitos).', 'error'); return; }
         const repetido = sid && miembros.find(x => x.id !== m.id && x.steam_id === sid);
         if (repetido && !await confirmar('SteamID repetido', `${repetido.grado} ${repetido.nombre} ya tiene ese SteamID. ¿Guardar igual?`, 'Guardar igual')) return formulario(m);
         try {
           const g = await api.guardarMiembro({ ...(m.id ? { id: m.id } : {}),
             nombre: f.nombre.value.trim(), grado: f.grado.value.trim(), categoria: f.categoria.value,
             numero_clon: f.numero_clon.value.trim(), nombre_jedi: f.nombre_jedi.value.trim(),
-            nombre_iconico: f.nombre_iconico.value.trim() || 'No', job: f.job.value.trim(),
+            nombre_iconico: f.nombre_iconico.value.trim() || 'No', elite: f.elite.value, discord_id: did,
             steam_id: sid, steam_id64: s64, fecha_rango: f.fecha_rango.value || null,
             notas: f.notas.value.trim(), activo: f.activo.checked });
           miembros = ordenarMiembros(m.id ? miembros.map(x => x.id === g.id ? g : x) : [...miembros, g]);
@@ -637,13 +667,13 @@ async function vistaMiembros(cont) {
   }
 
   function exportarCSV() {
-    const enc = ['Rango', 'Nombre clon', 'N° clon', 'Nombre Jedi', 'Nombre icónico', 'Categoría', 'Job habitual',
-      'SteamID', 'SteamID64', 'En el rango desde', 'Antigüedad en el rango', 'Estado', 'Notas'];
+    const enc = ['Rango', 'Nombre clon', 'N° clon', 'Nombre Jedi', 'Nombre icónico', 'Categoría', 'Élite',
+      'SteamID', 'SteamID64', 'Discord ID', 'En el rango desde', 'Antigüedad en el rango', 'Estado', 'Notas'];
     const filas = filtrados().map(m => [m.grado, m.nombre, m.numero_clon, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
-      CATEGORIAS_MIEMBRO[m.categoria] || m.categoria, m.job, m.steam_id, m.steam_id64, m.fecha_rango || '',
+      CATEGORIAS_MIEMBRO[m.categoria] || m.categoria, ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id, m.fecha_rango || '',
       antiguedad(m.fecha_rango), m.activo ? 'Activo' : 'Inactivo', m.notas]);
-    // El ="..." evita que Excel convierta el SteamID64 en notación científica
-    descargar('miembros_legion.csv', [enc, ...filas].map(r => r.map((v, i) => i === 8 && v ? `="${v}"` : celdaCSV(v)).join(';')).join('\r\n'));
+    // El ="..." evita que Excel convierta SteamID64 y Discord ID en notación científica
+    descargar('miembros_legion.csv', [enc, ...filas].map((r, n) => r.map((v, i) => n && (i === 8 || i === 9) && v ? `="${v}"` : celdaCSV(v)).join(';')).join('\r\n'));
   }
 
   $('#buscar').oninput = e => { filtro.texto = e.target.value; pintar(); };

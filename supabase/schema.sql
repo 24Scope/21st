@@ -42,6 +42,8 @@ create table if not exists public.miembros (
   steam_id        text default '',
   steam_id64      text default '',
   job             text default '',
+  discord_id      text default '',
+  elite           text default '',
   fecha_rango     date,
   notas           text default '',
   activo          boolean not null default true,
