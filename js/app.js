@@ -542,7 +542,7 @@ async function vistaMiembros(cont) {
       ${editable ? '<button class="btn primario" id="btn-nuevo">+ Agregar miembro</button>' : ''}
     </div>
     <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
-      <th>Rango</th><th>Nombre clon</th><th>N° clon</th><th>Nombre Jedi</th><th>Nombre icónico</th>
+      <th>Rango</th><th>Nombre clon</th><th>N° clon</th><th>Nombre Jedi</th><th>Icónico</th>
       <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th><th>Antigüedad en el rango</th><th>Estado</th>${editable ? '<th></th>' : ''}
     </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
     <p class="ayuda">Clic en un SteamID o Discord para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
@@ -629,7 +629,7 @@ async function vistaMiembros(cont) {
         </div>
         <div class="fila-campos">
           <label class="campo"><span>Nombre Jedi</span><input name="nombre_jedi" maxlength="60" value="${esc(m.nombre_jedi)}" placeholder="Vacío si no tiene"></label>
-          <label class="campo"><span>Nombre icónico</span><select name="nombre_iconico">${opcionesIconico(m)}</select></label>
+          <label class="campo"><span>Icónico</span><select name="nombre_iconico">${opcionesIconico(m)}</select></label>
         </div>
         <div class="fila-campos">
           <label class="campo"><span>Élite</span><select name="elite"><option value="">No</option>${Object.entries(ELITES).map(([k, t]) => `<option value="${k}">${k} · ${esc(t)}</option>`).join('')}</select></label>
@@ -679,7 +679,7 @@ async function vistaMiembros(cont) {
   }
 
   function exportarCSV() {
-    const enc = ['Rango', 'Nombre clon', 'N° clon', 'Nombre Jedi', 'Nombre icónico', 'Categoría', 'Élite',
+    const enc = ['Rango', 'Nombre clon', 'N° clon', 'Nombre Jedi', 'Icónico', 'Categoría', 'Élite',
       'SteamID', 'SteamID64', 'Discord', 'En el rango desde', 'Antigüedad en el rango', 'Estado', 'Notas'];
     const filas = filtrados().map(m => [m.grado, m.nombre, m.numero_clon, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
       CATEGORIAS_MIEMBRO[m.categoria] || m.categoria, ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id, m.fecha_rango || '',
