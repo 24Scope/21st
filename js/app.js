@@ -1258,7 +1258,30 @@ async function vistaPerfil(cont) {
     <h3 class="seccion-titulo" id="titulo-actividades">Actividades registradas</h3>
     <div class="envoltorio-tabla"><table class="datos tabla-actividades"><thead><tr>
       <th>Fecha</th><th>Actividad</th><th>Rol</th><th>Con</th><th>Cargada por</th><th>Registrada el</th><th>Informe</th>
-    </tr></thead><tbody id="perfil-actividades"></tbody></table></div>`;
+    </tr></thead><tbody id="perfil-actividades"></tbody></table></div>
+
+    <div id="bloque-anuladas" hidden>
+      <h3 class="seccion-titulo" id="titulo-anuladas">Actividades anuladas</h3>
+      <p class="dato-etiqueta" style="margin:-6px 0 10px">No suman en las tablas. Se muestran solo para control.</p>
+      <div class="envoltorio-tabla"><table class="datos tabla-actividades"><thead><tr>
+        <th>Fecha</th><th>Actividad</th><th>Rol</th><th>Con</th><th>Cargada por</th><th>Anulada el</th><th>Informe</th>
+      </tr></thead><tbody id="perfil-anuladas"></tbody></table></div>
+    </div>`;
+
+  // Una fila de actividad. En las anuladas, la penúltima columna muestra cuándo se anuló.
+  function filaActividad(a) {
+    const otros = a.participantes.filter(id => id !== m.id);
+    const cuando = a.anulada ? a.anulada_en : a.creado_en;
+    return `<tr>
+      <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
+      <td><strong>${esc(tipoNombre(a.tipo))}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
+      <td>${a.autor_miembro === m.id ? 'Organizó' : 'Participó'}</td>
+      <td style="white-space:normal;min-width:140px">${otros.length ? otros.map(id => `<a class="link-perfil" href="#/perfil?id=${id}">${esc(etiqueta(id))}</a>`).join(', ') : '<span class="tenue">—</span>'}</td>
+      <td>${a.autor_miembro ? `<a class="link-perfil" href="#/perfil?id=${a.autor_miembro}">${esc(etiqueta(a.autor_miembro))}</a>` : '—'}</td>
+      <td>${cuando ? new Date(cuando).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+      <td><a class="btn chico" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir en Discord ↗</a></td>
+    </tr>`;
+  }
 
   function pintar() {
     const nombreMes = `${MESES[sel.mes - 1]} ${sel.anio}`;
@@ -1282,20 +1305,13 @@ async function vistaPerfil(cont) {
     $('#perfil-requisito').innerHTML = principal ? `Requisito del mes en ${esc(CATEGORIAS[principal.categoria].titulo)}: <strong>${esc(principal.calc.requisitos)}</strong>` : '';
 
     // Actividades del mes con su link
-    const acts = actividades.filter(a => +a.fecha.slice(0, 4) === sel.anio && +a.fecha.slice(5, 7) === sel.mes);
+    const delMesActs = actividades.filter(a => +a.fecha.slice(0, 4) === sel.anio && +a.fecha.slice(5, 7) === sel.mes);
+    const acts = delMesActs.filter(a => !a.anulada), anuladas = delMesActs.filter(a => a.anulada);
     const hayHistorial = delMes.length > 0;
-    $('#perfil-actividades').innerHTML = acts.length ? acts.map(a => {
-      const otros = a.participantes.filter(id => id !== m.id);
-      return `<tr class="${a.anulada ? 'fila-inactiva' : ''}">
-        <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
-        <td><strong>${esc(tipoNombre(a.tipo))}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}${a.anulada ? ' <span class="etiqueta">Anulada</span>' : ''}</td>
-        <td>${a.autor_miembro === m.id ? 'Organizó' : 'Participó'}</td>
-        <td style="white-space:normal;min-width:140px">${otros.length ? otros.map(id => `<a class="link-perfil" href="#/perfil?id=${id}">${esc(etiqueta(id))}</a>`).join(', ') : '<span class="tenue">—</span>'}</td>
-        <td>${a.autor_miembro ? `<a class="link-perfil" href="#/perfil?id=${a.autor_miembro}">${esc(etiqueta(a.autor_miembro))}</a>` : '—'}</td>
-        <td>${new Date(a.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</td>
-        <td><a class="btn chico" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir en Discord ↗</a></td>
-      </tr>`;
-    }).join('') : `<tr><td colspan="7" class="vacio">${hayHistorial
+    $('#bloque-anuladas').hidden = !anuladas.length;
+    $('#titulo-anuladas').textContent = `Actividades anuladas en ${nombreMes} (${anuladas.length})`;
+    $('#perfil-anuladas').innerHTML = anuladas.map(filaActividad).join('');
+    $('#perfil-actividades').innerHTML = acts.length ? acts.map(filaActividad).join('') : `<tr><td colspan="7" class="vacio">${hayHistorial
       ? 'Este mes no tiene actividades cargadas desde la página. Los números de arriba vienen del historial de los Excel, que no tiene informes.'
       : 'Sin actividades registradas en este mes.'}</td></tr>`;
   }
