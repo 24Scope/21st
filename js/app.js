@@ -162,22 +162,35 @@ function navegar() {
 /* ============================================================ INICIO */
 async function vistaInicio(cont) {
   const hoy = new Date();
-  const [miembros, eventos, regs] = await Promise.all([
+  const anterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);   // último mes cerrado
+  const anios = [...new Set([anterior.getFullYear(), hoy.getFullYear()])];
+  const [miembros, eventos, ...regsPorAnio] = await Promise.all([
     api.listarMiembros(),
     api.listarEventos(fechaISO(hoy), fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30))),
-    api.listarRegistrosAnio(hoy.getFullYear()),
+    ...anios.map(a => api.listarRegistrosAnio(a)),
   ]);
-  const mesActual = hoy.getMonth() + 1;
+  const regs = regsPorAnio.flat();
 
   const tarjetas = Object.entries(CATEGORIAS).map(([clave, cat]) => {
-    const cant = miembros.filter(m => cat.incluye.includes(m.categoria) && m.activo).length;
-    const numericas = new Set(cat.columnas.filter(c => c.tipo === 'numero').map(c => c.clave));
-    const total = regs.filter(r => r.categoria === clave && r.mes === mesActual && numericas.has(r.columna))
-      .reduce((s, r) => s + numero(r.valor), 0);
+    const cant = miembros.filter(m => cat.incluye.includes(m.categoria) && (!cat.filtro || cat.filtro(m)) && m.activo).length;
+    const k = claveHoja(cat, cat.periodo ? periodoDe(cat, hoy) : { anio: anterior.getFullYear(), mes: anterior.getMonth() + 1 });
+    const delPeriodo = regs.filter(r => r.categoria === clave && r.anio === k.anio && r.mes === k.mes && (r.periodo || '') === k.periodo);
+    const colTotal = cat.columnas.find(c => c.tipo === 'calculada' && c.numerica && /total/.test(c.clave) && !/lid/.test(c.clave));
+    let detalle = '';
+    if (colTotal) {
+      const porMiembro = new Map();
+      for (const r of delPeriodo) {
+        if (!porMiembro.has(r.miembro_id)) porMiembro.set(r.miembro_id, {});
+        porMiembro.get(r.miembro_id)[r.columna] = r.valor;
+      }
+      let total = 0;
+      for (const vals of porMiembro.values()) total += numero(calcularFila(cat, col => vals[col])[colTotal.clave]);
+      detalle = `${formatoNum(total)} actividades ${cat.periodo ? 'en el período actual' : 'en ' + MESES[k.mes - 1].toLowerCase()}`;
+    }
     return `<div class="tarjeta tarjeta-link" data-ir="${clave}">
       <div class="dato-grande">${cant}</div>
       <div class="dato-etiqueta">${esc(cat.titulo)} activos</div>
-      <div class="dato-etiqueta" style="margin-top:10px">${formatoNum(total)} actividades en ${MESES[mesActual - 1].toLowerCase()}</div>
+      ${detalle ? `<div class="dato-etiqueta" style="margin-top:10px">${detalle}</div>` : ''}
     </div>`;
   }).join('');
 
@@ -188,6 +201,7 @@ async function vistaInicio(cont) {
       <span class="dato-etiqueta">${DIAS[(d.getDay() + 6) % 7]} ${d.getDate()}/${d.getMonth() + 1}${e.hora ? ' · ' + esc(e.hora) : ''}</span></li>`;
   }).join('')}</ul>` : '<div class="vacio">No hay eventos en los próximos 30 días.</div>';
 
+  const visibles = miembros.filter(m => m.activo && !CATEGORIAS_MIEMBRO[m.categoria]?.oculta).length;
   cont.innerHTML = `
     <p style="margin:0 0 20px;color:var(--texto-2)">Hola, <strong style="color:var(--texto)">${esc(estado.perfil.nombre)}</strong>. Elegí una sección del menú o un acceso rápido.</p>
     <div class="rejilla">${tarjetas}</div>
@@ -196,72 +210,148 @@ async function vistaInicio(cont) {
       <div class="tarjeta"><h3>Accesos rápidos</h3><ul class="lista-simple">
         <li><a class="menu-item" style="color:var(--texto)" href="#/calendario"><span class="menu-icono">▤</span>Calendario</a></li>
         <li><a class="menu-item" style="color:var(--texto)" href="#/reglamento"><span class="menu-icono">§</span>Reglamento del calendario</a></li>
-        <li><a class="menu-item" style="color:var(--texto)" href="#/miembros"><span class="menu-icono">☰</span>Miembros de la legión (${miembros.length})</a></li>
+        <li><a class="menu-item" style="color:var(--texto)" href="#/miembros"><span class="menu-icono">☰</span>Miembros de la legión (${visibles})</a></li>
       </ul></div>
     </div>`;
   $$('[data-ir]', cont).forEach(t => t.onclick = () => location.hash = '#/' + t.dataset.ir);
 }
 
-/* ============================================================ REGISTROS (hoja mensual) */
+/* ============================================================ REGISTROS: utilidades */
+
+// Período (Soldados / Cabos) que contiene la fecha dada
+function periodoDe(config, fecha) {
+  const ini = new Date(config.periodo.inicio + 'T00:00:00');
+  const f = new Date(fecha); f.setHours(0, 0, 0, 0);
+  const k = Math.floor(Math.round((f - ini) / 864e5) / config.periodo.dias);
+  const d = new Date(ini); d.setDate(d.getDate() + k * config.periodo.dias);
+  return d;
+}
+// Clave de una hoja: { anio, mes, periodo }
+function claveHoja(config, ref) {
+  if (config.periodo) {
+    const d = ref instanceof Date ? ref : new Date(ref + 'T00:00:00');
+    return { anio: d.getFullYear(), mes: d.getMonth() + 1, periodo: fechaISO(d) };
+  }
+  return { anio: ref.anio, mes: ref.mes, periodo: '' };
+}
+const fechaCorta = d => d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+// Valores calculados de una fila. valor(clave) devuelve el texto guardado de una columna.
+function calcularFila(config, valor) {
+  const res = {};
+  const v = k => numero(valor(k));
+  const t = k => (k in res ? numero(res[k]) : v(k));
+  for (const c of config.columnas) if (c.tipo === 'calculada') {
+    try { res[c.clave] = c.calc(v, t); } catch { res[c.clave] = ''; }
+  }
+  return res;
+}
+
+const ORDEN_ELITE = Object.keys(ELITES);
+function ordenarFilasRegistro(config, lista) {
+  return lista.sort((a, b) => {
+    if (config.ordenarPor === 'elite') {
+      const d = ORDEN_ELITE.indexOf(a.elite) - ORDEN_ELITE.indexOf(b.elite);
+      if (d) return d;
+    }
+    return compararRango(a, b);
+  });
+}
+
+function valorFijo(m, f) {
+  const v = m[f.campo];
+  if (!v) return '';
+  if (f.tipo === 'fecha') return new Date(v + 'T00:00:00').toLocaleDateString('es-AR');
+  return String(v);
+}
+
+/* ============================================================ REGISTROS (hoja) */
 async function vistaRegistro(cat) {
   const cont = $('#contenido');
   const config = CATEGORIAS[cat];
-  const hoja = { cat, config, miembros: [], filas: [], celdas: new Map(), sel: { f: 0, c: 0 }, editando: null };
+  const cols = config.columnas;
+  const fijas = config.fijas || [];
+  const editables = cols.filter(c => c.tipo !== 'calculada');
+  const hoja = { cat, config, filas: [], celdas: new Map(), calc: [], sel: { f: 0, c: 0 }, editando: null, clave: null };
+  estado.periodos = estado.periodos || {};
+  if (config.periodo && !estado.periodos[cat]) estado.periodos[cat] = periodoDe(config, new Date());
+
+  const navegacion = config.periodo
+    ? `<div class="selector-anio"><button data-per="-1" aria-label="Período anterior">‹</button><span id="txt-periodo" style="min-width:190px"></span><button data-per="1" aria-label="Período siguiente">›</button></div>
+       <button class="btn chico" id="btn-per-hoy">Período actual</button>`
+    : `<div class="selector-anio"><button data-anio="-1" aria-label="Año anterior">‹</button><span id="txt-anio"></span><button data-anio="1" aria-label="Año siguiente">›</button></div>`;
+  const textoMes = config.periodo ? 'período' : 'mes';
 
   cont.innerHTML = `
     <div class="herramientas">
-      <div class="selector-anio"><button data-anio="-1" aria-label="Año anterior">‹</button><span id="txt-anio"></span><button data-anio="1" aria-label="Año siguiente">›</button></div>
+      ${navegacion}
       <span class="espacio"></span>
       <button class="btn chico" id="btn-bloq-celda" title="Bloquear o desbloquear la celda seleccionada (Ctrl+B)">🔒 Bloquear celda</button>
-      <button class="btn chico" id="btn-bloq-mes">Bloquear mes</button>
-      <button class="btn chico" id="btn-desbloq-mes">Desbloquear mes</button>
+      <button class="btn chico" id="btn-bloq-mes">Bloquear ${textoMes}</button>
+      <button class="btn chico" id="btn-desbloq-mes">Desbloquear ${textoMes}</button>
       <button class="btn chico" id="btn-csv">Exportar CSV</button>
     </div>
-    <div class="meses" id="meses">${MESES.map((m, i) => `<button class="mes" data-mes="${i + 1}">${m}</button>`).join('')}</div>
-    <div class="barra-formula"><div class="ref" id="f-ref">—</div><div class="fx">fx</div><div class="val" id="f-val"></div><div class="estado-guardado" id="f-estado"></div></div>
+    ${config.periodo ? '' : `<div class="meses" id="meses">${MESES.map((m, i) => `<button class="mes" data-mes="${i + 1}">${m}</button>`).join('')}</div>`}
+    <div class="barra-formula ${config.periodo ? 'sin-meses' : ''}"><div class="ref" id="f-ref">—</div><div class="fx">fx</div><div class="val" id="f-val"></div><div class="estado-guardado" id="f-estado"></div></div>
     <div class="hoja-contenedor" id="hoja-cont" tabindex="0"></div>
+    ${cols.filter(c => c.opciones).map(c => `<datalist id="op-${c.clave}">${c.opciones.map(o => `<option value="${esc(o)}">`).join('')}</datalist>`).join('')}
     <p class="ayuda">Clic para seleccionar · <kbd>Doble clic</kbd> o empezá a escribir para editar · <kbd>Enter</kbd> guarda y baja · <kbd>Tab</kbd> guarda y avanza · <kbd>Supr</kbd> borra · <kbd>Esc</kbd> cancela · <kbd>Ctrl</kbd>+<kbd>B</kbd> bloquea/desbloquea.
-    Los miembros salen de <a href="#/miembros">Miembros de la legión</a> (categoría ${config.incluye.map(c => esc(CATEGORIAS_MIEMBRO[c] || c)).join(' y ')}).</p>`;
+    Las columnas en <span class="muestra-calc">gris</span> se calculan solas. Los miembros salen de <a href="#/miembros">Miembros de la legión</a>, ordenados por rango.</p>`;
 
   const editable = puedeEditar();
   ['#btn-bloq-celda', '#btn-bloq-mes', '#btn-desbloq-mes'].forEach(s => { $(s).hidden = !editable; });
 
   const clave = (mid, col) => `${mid}|${col}`;
-  const celdaDe = (f, c) => hoja.celdas.get(clave(hoja.filas[f].id, config.columnas[c].clave));
+  const celdaDe = (f, c) => hoja.celdas.get(clave(hoja.filas[f].id, cols[c].clave));
+  const recalcular = f => { hoja.calc[f] = calcularFila(config, col => hoja.celdas.get(clave(hoja.filas[f].id, col))?.valor); };
+  const textoCelda = (f, c) => cols[c].tipo === 'calculada' ? (hoja.calc[f]?.[cols[c].clave] ?? '') : (celdaDe(f, c)?.valor ?? '');
+  const refActual = () => config.periodo ? estado.periodos[cat] : { anio: estado.anio, mes: estado.mes };
+  const nombreHoja = () => {
+    if (!config.periodo) return `${MESES[estado.mes - 1]} ${estado.anio}`;
+    const ini = estado.periodos[cat], fin = new Date(ini); fin.setDate(fin.getDate() + config.periodo.dias - 1);
+    return `${fechaCorta(ini)} al ${fechaCorta(fin)}`;
+  };
 
   async function cargar() {
-    $('#txt-anio').textContent = estado.anio;
-    $$('.mes', cont).forEach(b => b.classList.toggle('activo', +b.dataset.mes === estado.mes));
+    hoja.clave = claveHoja(config, refActual());
+    if (config.periodo) $('#txt-periodo').textContent = nombreHoja();
+    else {
+      $('#txt-anio').textContent = estado.anio;
+      $$('.mes', cont).forEach(b => b.classList.toggle('activo', +b.dataset.mes === estado.mes));
+    }
     $('#hoja-cont').innerHTML = '<div class="vacio">Cargando…</div>';
-    const [miembros, regs] = await Promise.all([api.listarMiembros(), api.listarRegistros(cat, estado.anio, estado.mes)]);
+    const [miembros, regs] = await Promise.all([api.listarMiembros(), api.listarRegistros(cat, hoja.clave)]);
     hoja.celdas = new Map(regs.map(r => [clave(r.miembro_id, r.columna), r]));
     const conDatos = new Set(regs.filter(r => r.valor !== null && r.valor !== '').map(r => r.miembro_id));
-    hoja.filas = miembros.filter(m => config.incluye.includes(m.categoria) && (m.activo || conDatos.has(m.id)))
-      .sort(compararRango);
-    hoja.sel = { f: Math.min(hoja.sel.f, Math.max(hoja.filas.length - 1, 0)), c: Math.min(hoja.sel.c, config.columnas.length - 1) };
+    hoja.filas = ordenarFilasRegistro(config, miembros.filter(m =>
+      (m.activo && config.incluye.includes(m.categoria) && (!config.filtro || config.filtro(m))) || conDatos.has(m.id)));
+    hoja.filas.forEach((_, f) => recalcular(f));
+    hoja.sel = { f: Math.min(hoja.sel.f, Math.max(hoja.filas.length - 1, 0)), c: Math.min(hoja.sel.c, cols.length - 1) };
     pintar();
   }
 
   function pintar() {
     const hc = $('#hoja-cont');
     if (!hoja.filas.length) {
-      hc.innerHTML = `<div class="vacio">No hay miembros en <strong>${esc(config.titulo)}</strong>.<br><br>
-        <a class="btn" href="#/miembros">Agregar miembros</a></div>`;
+      hc.innerHTML = `<div class="vacio">No hay miembros para <strong>${esc(config.titulo)}</strong> en ${esc(nombreHoja())}.<br><br>
+        <a class="btn" href="#/miembros">Ir a Miembros</a></div>`;
       actualizarFormula(); return;
     }
-    const cols = config.columnas;
+    const numCol = c => c.tipo === 'numero' || c.numerica;
     let html = `<table class="hoja"><thead><tr>
-      <th class="fijo col-n">#</th><th class="fijo col-nombre">Miembro</th><th>Grado</th>
-      ${cols.map(c => `<th class="${c.tipo === 'numero' ? 'num' : ''}">${esc(c.nombre)}</th>`).join('')}
-      <th class="num">Total</th></tr></thead><tbody>`;
+      <th class="fijo col-n">#</th><th class="fijo col-nombre">Miembro</th><th>Rango</th>
+      ${fijas.map(f => `<th>${esc(f.nombre)}</th>`).join('')}
+      ${cols.map(c => `<th class="${numCol(c) ? 'num' : ''} ${c.tipo === 'calculada' ? 'th-calc' : ''}">${esc(c.nombre)}</th>`).join('')}
+      </tr></thead><tbody>`;
     hoja.filas.forEach((m, f) => {
       html += `<tr class="${m.activo ? '' : 'inactivo'}"><td class="fijo col-n">${f + 1}</td>
-        <td class="fijo col-nombre" title="Dato fijo">${esc(m.nombre)}</td><td class="col-grado">${esc(m.grado)}</td>`;
+        <td class="fijo col-nombre" title="${esc(m.discord_id || '')}">${esc(m.nombre)}</td><td class="col-grado">${esc(m.grado)}</td>
+        ${fijas.map(x => `<td class="col-grado">${esc(valorFijo(m, x))}</td>`).join('')}`;
       cols.forEach((c, ci) => { html += `<td data-f="${f}" data-c="${ci}"></td>`; });
-      html += `<td class="total num" data-total="${f}"></td></tr>`;
+      html += `</tr>`;
     });
-    html += `</tbody><tfoot><tr><td class="fijo col-n"></td><td class="fijo col-nombre">Total</td><td></td>
-      ${cols.map((c, ci) => `<td class="num" data-tcol="${ci}"></td>`).join('')}<td class="num" data-tgen></td></tr></tfoot></table>`;
+    html += `</tbody><tfoot><tr><td class="fijo col-n"></td><td class="fijo col-nombre">Total</td><td></td>${fijas.map(() => '<td></td>').join('')}
+      ${cols.map((c, ci) => `<td class="num" data-tcol="${ci}"></td>`).join('')}</tr></tfoot></table>`;
     hc.innerHTML = html;
     hoja.filas.forEach((_, f) => cols.forEach((_, c) => pintarCelda(f, c)));
     pintarTotales();
@@ -272,26 +362,34 @@ async function vistaRegistro(cat) {
 
   function pintarCelda(f, c) {
     const td = tdDe(f, c); if (!td) return;
-    const col = config.columnas[c], r = celdaDe(f, c);
+    const col = cols[c];
+    if (col.tipo === 'calculada') {
+      const v = hoja.calc[f]?.[col.clave];
+      td.className = 'celda calc ' + (col.numerica ? 'num' : 'texto-corto');
+      td.textContent = col.numerica ? formatoNum(numero(v)) : (v ?? '');
+      td.title = 'Se calcula solo';
+      return;
+    }
+    const r = celdaDe(f, c);
     td.className = 'celda ' + (col.tipo === 'numero' ? 'num' : 'texto') + (r?.bloqueado ? ' bloqueada' : '') + (editable ? '' : ' solo-lectura');
     td.textContent = r?.valor ?? '';
-    td.title = r?.bloqueado ? 'Celda bloqueada' : '';
+    td.title = r?.bloqueado ? 'Celda bloqueada' : (col.tipo === 'texto' && r?.valor ? r.valor : '');
   }
 
+  function pintarFila(f) { recalcular(f); cols.forEach((c, ci) => { if (c.tipo === 'calculada') pintarCelda(f, ci); }); }
+
   function pintarTotales() {
-    const cols = config.columnas;
-    let general = 0;
-    hoja.filas.forEach((m, f) => {
-      let t = 0;
-      cols.forEach((c, ci) => { if (c.tipo === 'numero') t += numero(celdaDe(f, ci)?.valor); });
-      general += t;
-      const td = $(`[data-total="${f}"]`); if (td) td.textContent = formatoNum(t);
-    });
     cols.forEach((c, ci) => {
       const td = $(`[data-tcol="${ci}"]`); if (!td) return;
-      td.textContent = c.tipo === 'numero' ? formatoNum(hoja.filas.reduce((s, _, f) => s + numero(celdaDe(f, ci)?.valor), 0)) : '';
+      if (c.tipo === 'numero') td.textContent = formatoNum(hoja.filas.reduce((s, _, f) => s + numero(celdaDe(f, ci)?.valor), 0));
+      else if (c.numerica) td.textContent = formatoNum(hoja.filas.reduce((s, _, f) => s + numero(hoja.calc[f]?.[c.clave]), 0));
+      else if (c.tipo === 'calculada') {
+        const cuenta = {};
+        hoja.filas.forEach((_, f) => { const v = hoja.calc[f]?.[c.clave]; if (v) cuenta[v] = (cuenta[v] || 0) + 1; });
+        td.textContent = Object.entries(cuenta).map(([k, n]) => `${k.split(' ')[0]} ${n}`).join('  ');
+        td.className = 'texto-corto';
+      } else td.textContent = '';
     });
-    const tg = $('[data-tgen]'); if (tg) tg.textContent = formatoNum(general);
   }
 
   function marcarSeleccion() {
@@ -317,10 +415,10 @@ async function vistaRegistro(cat) {
   function actualizarFormula() {
     const btn = $('#btn-bloq-celda');
     if (!hoja.filas.length) { $('#f-ref').textContent = '—'; $('#f-val').textContent = ''; btn.disabled = true; return; }
-    const m = hoja.filas[hoja.sel.f], col = config.columnas[hoja.sel.c], r = celdaDe(hoja.sel.f, hoja.sel.c);
-    $('#f-ref').textContent = `${m.nombre} · ${col.nombre} · ${MESES[estado.mes - 1]}`;
-    $('#f-val').textContent = (r?.bloqueado ? '🔒 ' : '') + (r?.valor ?? '');
-    btn.disabled = false;
+    const m = hoja.filas[hoja.sel.f], col = cols[hoja.sel.c], r = celdaDe(hoja.sel.f, hoja.sel.c);
+    $('#f-ref').textContent = `${m.grado} ${m.nombre} · ${col.nombre} · ${nombreHoja()}`;
+    $('#f-val').textContent = col.tipo === 'calculada' ? `= ${textoCelda(hoja.sel.f, hoja.sel.c)}  (calculado)` : (r?.bloqueado ? '🔒 ' : '') + (r?.valor ?? '');
+    btn.disabled = col.tipo === 'calculada';
     btn.textContent = r?.bloqueado ? '🔓 Desbloquear celda' : '🔒 Bloquear celda';
   }
 
@@ -338,19 +436,20 @@ async function vistaRegistro(cat) {
 
   function base(f, c) {
     const r = celdaDe(f, c);
-    return { categoria: cat, anio: estado.anio, mes: estado.mes, miembro_id: hoja.filas[f].id,
-      columna: config.columnas[c].clave, valor: r?.valor ?? null, bloqueado: !!r?.bloqueado };
+    return { categoria: cat, ...hoja.clave, miembro_id: hoja.filas[f].id,
+      columna: cols[c].clave, valor: r?.valor ?? null, bloqueado: !!r?.bloqueado };
   }
 
   function empezarEdicion(f, c, textoInicial) {
     if (!editable) return aviso('Tu cuenta es de solo lectura.');
+    const col = cols[c];
+    if (col.tipo === 'calculada') return aviso(`"${col.nombre}" se calcula solo.`);
     const r = celdaDe(f, c);
     if (r?.bloqueado) return aviso('Esta celda está bloqueada. Desbloqueala para modificarla.');
     const td = tdDe(f, c); if (!td) return;
-    const col = config.columnas[c];
     hoja.editando = { f, c };
     td.classList.add('editando');
-    td.innerHTML = `<input type="text" inputmode="${col.tipo === 'numero' ? 'decimal' : 'text'}">`;
+    td.innerHTML = `<input type="text" inputmode="${col.tipo === 'numero' ? 'decimal' : 'text'}" ${col.opciones ? `list="op-${col.clave}"` : ''}>`;
     const inp = $('input', td);
     inp.value = textoInicial ?? (r?.valor ?? '');
     inp.focus();
@@ -368,16 +467,16 @@ async function vistaRegistro(cat) {
           // Se muestra al instante y se guarda en segundo plano; si falla, se revierte
           const valor = nuevo === '' ? null : (col.tipo === 'numero' ? nuevo.replace(',', '.') : nuevo);
           const k = clave(hoja.filas[f].id, col.clave), previo = hoja.celdas.get(k);
-          const anio = estado.anio, mes = estado.mes;
+          const claveGuardada = JSON.stringify(hoja.clave);
           hoja.celdas.set(k, { ...(previo || {}), ...base(f, c), valor });
           guardar([{ ...base(f, c) }]).then(ok => {
-            if (ok || anio !== estado.anio || mes !== estado.mes) return;
+            if (ok || claveGuardada !== JSON.stringify(hoja.clave)) return;
             previo ? hoja.celdas.set(k, previo) : hoja.celdas.delete(k);
-            pintarCelda(f, c); pintarTotales(); actualizarFormula();
+            pintarCelda(f, c); pintarFila(f); pintarTotales(); actualizarFormula();
           });
         }
       }
-      pintarCelda(f, c); pintarTotales();
+      pintarCelda(f, c); pintarFila(f); pintarTotales();
       if (mover) moverSel(mover[0], mover[1]); else marcarSeleccion();
       $('#hoja-cont').focus({ preventScroll: true });
     };
@@ -391,50 +490,54 @@ async function vistaRegistro(cat) {
   }
 
   function moverSel(df, dc) {
-    const nf = hoja.sel.f + df, nc = hoja.sel.c + dc;
-    hoja.sel.f = Math.max(0, Math.min(hoja.filas.length - 1, nf));
-    hoja.sel.c = Math.max(0, Math.min(config.columnas.length - 1, nc));
+    hoja.sel.f = Math.max(0, Math.min(hoja.filas.length - 1, hoja.sel.f + df));
+    hoja.sel.c = Math.max(0, Math.min(cols.length - 1, hoja.sel.c + dc));
     marcarSeleccion();
   }
 
   async function alternarBloqueoCelda() {
-    if (!editable || !hoja.filas.length) return;
+    if (!editable || !hoja.filas.length || cols[hoja.sel.c].tipo === 'calculada') return;
     const { f, c } = hoja.sel, r = celdaDe(f, c);
     if (await guardar([{ ...base(f, c), bloqueado: !r?.bloqueado }])) { pintarCelda(f, c); actualizarFormula(); }
   }
 
-  async function bloquearMes(bloq) {
+  async function bloquearHoja(bloq) {
     if (!hoja.filas.length) return;
-    const ok = await confirmar(bloq ? 'Bloquear mes' : 'Desbloquear mes',
-      bloq ? `Se van a bloquear todas las celdas de ${MESES[estado.mes - 1]} ${estado.anio} en ${config.titulo}. Nadie podrá modificarlas hasta desbloquearlas.`
-           : `Se van a desbloquear todas las celdas de ${MESES[estado.mes - 1]} ${estado.anio} en ${config.titulo}.`,
+    const ok = await confirmar(bloq ? `Bloquear ${textoMes}` : `Desbloquear ${textoMes}`,
+      bloq ? `Se van a bloquear todas las celdas de ${nombreHoja()} en ${config.titulo}. Nadie podrá modificarlas hasta desbloquearlas.`
+           : `Se van a desbloquear todas las celdas de ${nombreHoja()} en ${config.titulo}.`,
       bloq ? 'Bloquear' : 'Desbloquear');
     if (!ok) return;
     const lista = [];
-    hoja.filas.forEach((_, f) => config.columnas.forEach((_, c) => {
+    hoja.filas.forEach((_, f) => cols.forEach((col, c) => {
+      if (col.tipo === 'calculada') return;
       const r = celdaDe(f, c);
       if (bloq || r?.bloqueado) lista.push({ ...base(f, c), bloqueado: bloq });
     }));
-    if (lista.length && await guardar(lista)) { pintar(); aviso(bloq ? 'Mes bloqueado.' : 'Mes desbloqueado.'); }
+    if (lista.length && await guardar(lista)) { pintar(); aviso(bloq ? 'Bloqueado.' : 'Desbloqueado.'); }
   }
 
   function exportarCSV() {
-    const cols = config.columnas;
-    const filas = [['Miembro', 'Grado', ...cols.map(c => c.nombre), 'Total']];
-    hoja.filas.forEach((m, f) => {
-      let t = 0;
-      const vals = cols.map((c, ci) => { const v = celdaDe(f, ci)?.valor ?? ''; if (c.tipo === 'numero') t += numero(v); return v; });
-      filas.push([m.nombre, m.grado, ...vals, formatoNum(t)]);
-    });
-    descargar(`${cat}_${estado.anio}_${pad(estado.mes)}_${MESES[estado.mes - 1]}.csv`, filas.map(f => f.map(celdaCSV).join(';')).join('\r\n'));
+    const filas = [['Miembro', 'Rango', ...fijas.map(x => x.nombre), ...cols.map(c => c.nombre)]];
+    hoja.filas.forEach((m, f) => filas.push([m.nombre, m.grado, ...fijas.map(x => valorFijo(m, x)), ...cols.map((c, ci) => textoCelda(f, ci))]));
+    const sufijo = config.periodo ? hoja.clave.periodo : `${estado.anio}_${pad(estado.mes)}_${MESES[estado.mes - 1]}`;
+    descargar(`${cat}_${sufijo}.csv`, filas.map(f => f.map(celdaCSV).join(';')).join('\r\n'));
   }
 
   /* eventos */
-  $$('[data-anio]', cont).forEach(b => b.onclick = () => { estado.anio += +b.dataset.anio; cargar().catch(fallo); });
-  $('#meses').onclick = ev => { const b = ev.target.closest('.mes'); if (b) { estado.mes = +b.dataset.mes; cargar().catch(fallo); } };
+  if (config.periodo) {
+    $$('[data-per]', cont).forEach(b => b.onclick = () => {
+      const d = new Date(estado.periodos[cat]); d.setDate(d.getDate() + (+b.dataset.per) * config.periodo.dias);
+      estado.periodos[cat] = d; cargar().catch(fallo);
+    });
+    $('#btn-per-hoy').onclick = () => { estado.periodos[cat] = periodoDe(config, new Date()); cargar().catch(fallo); };
+  } else {
+    $$('[data-anio]', cont).forEach(b => b.onclick = () => { estado.anio += +b.dataset.anio; cargar().catch(fallo); });
+    $('#meses').onclick = ev => { const b = ev.target.closest('.mes'); if (b) { estado.mes = +b.dataset.mes; cargar().catch(fallo); } };
+  }
   $('#btn-bloq-celda').onclick = alternarBloqueoCelda;
-  $('#btn-bloq-mes').onclick = () => bloquearMes(true);
-  $('#btn-desbloq-mes').onclick = () => bloquearMes(false);
+  $('#btn-bloq-mes').onclick = () => bloquearHoja(true);
+  $('#btn-desbloq-mes').onclick = () => bloquearHoja(false);
   $('#btn-csv').onclick = exportarCSV;
 
   const hc = $('#hoja-cont');
@@ -453,9 +556,10 @@ async function vistaRegistro(cat) {
     else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'b') { ev.preventDefault(); alternarBloqueoCelda(); }
     else if ((ev.key === 'Delete' || ev.key === 'Backspace') && editable) {
       ev.preventDefault();
+      if (cols[c].tipo === 'calculada') return;
       const r = celdaDe(f, c);
       if (r?.bloqueado) return aviso('Esta celda está bloqueada.');
-      if (r?.valor != null && await guardar([{ ...base(f, c), valor: null }])) { pintarCelda(f, c); pintarTotales(); actualizarFormula(); }
+      if (r?.valor != null && await guardar([{ ...base(f, c), valor: null }])) { pintarCelda(f, c); pintarFila(f); pintarTotales(); actualizarFormula(); }
     }
     else if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); empezarEdicion(f, c, ev.key); }
   };
@@ -463,8 +567,8 @@ async function vistaRegistro(cat) {
   // Cambios de otras personas en tiempo real
   let espera;
   estado.limpiezas.push(api.suscribir('registros', p => {
-    const n = p?.new || p?.old;
-    if (n && n.categoria && (n.categoria !== cat || n.anio !== estado.anio || n.mes !== estado.mes)) return;
+    const n = p?.new || p?.old, k = hoja.clave;
+    if (n && n.categoria && k && (n.categoria !== cat || n.anio !== k.anio || n.mes !== k.mes || (n.periodo || '') !== k.periodo)) return;
     clearTimeout(espera);
     espera = setTimeout(() => { if (!hoja.editando) cargar().catch(fallo); }, 400);
   }));
@@ -475,6 +579,8 @@ async function vistaRegistro(cat) {
 
 /* ============================================================ MIEMBROS */
 const ORDEN_CAT = Object.keys(CATEGORIAS_MIEMBRO);
+const tituloCat = c => CATEGORIAS_MIEMBRO[c]?.titulo || c;
+const catOculta = c => !!CATEGORIAS_MIEMBRO[c]?.oculta;
 const BASE_STEAM = 76561197960265728n;
 
 // STEAM_0:X:Y  ->  SteamID64
@@ -527,9 +633,9 @@ const ordenarMiembros = lista => lista.sort((a, b) =>
 
 async function vistaMiembros(cont) {
   let miembros = ordenarMiembros(await api.listarMiembros());
-  const filtro = { texto: '', cat: '' };
+  const filtro = { texto: '', cat: '', tropas: false, inactivos: true };
   const editable = puedeEditar();
-  const opcionesCat = Object.entries(CATEGORIAS_MIEMBRO).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('');
+  const opcionesCat = Object.entries(CATEGORIAS_MIEMBRO).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
   const nCols = editable ? 12 : 11;
 
   cont.innerHTML = `
@@ -537,6 +643,8 @@ async function vistaMiembros(cont) {
     <div class="herramientas">
       <input class="entrada" id="buscar" placeholder="Buscar nombre, rango, N° clon, SteamID, Discord, élite…" style="max-width:320px">
       <select class="entrada" id="filtro-cat" style="max-width:220px"><option value="">Todas las categorías</option>${opcionesCat}</select>
+      <label class="interruptor chico"><input type="checkbox" id="ver-inactivos" checked> Inactivos</label>
+      <label class="interruptor chico" title="Soldados y Cabos no se muestran por defecto"><input type="checkbox" id="ver-tropas"> Mostrar tropas</label>
       <span class="espacio"></span>
       <button class="btn chico" id="btn-csv-miembros">Exportar CSV</button>
       ${editable ? '<button class="btn primario" id="btn-nuevo">+ Agregar miembro</button>' : ''}
@@ -555,7 +663,7 @@ async function vistaMiembros(cont) {
       <td class="mono">${esc(m.numero_clon) || '—'}</td>
       <td>${esc(m.nombre_jedi) || '<span class="tenue">—</span>'}</td>
       <td>${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : '<span class="tenue">No</span>'}</td>
-      <td>${esc(CATEGORIAS_MIEMBRO[m.categoria] || m.categoria)}</td>
+      <td>${esc(tituloCat(m.categoria))}</td>
       <td>${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : '<span class="tenue">No</span>'}</td>
       <td class="steam">${m.steam_id ? `<button class="copiar mono" data-copiar="${esc(m.steam_id)}" title="Copiar">${esc(m.steam_id)}</button>` : '<span class="tenue">—</span>'}
         ${m.steam_id64 ? `<a class="sub mono" href="https://steamcommunity.com/profiles/${esc(m.steam_id64)}" target="_blank" rel="noopener noreferrer">${esc(m.steam_id64)}</a>` : ''}</td>
@@ -569,15 +677,16 @@ async function vistaMiembros(cont) {
 
   function filtrados() {
     const t = filtro.texto.trim().toLowerCase();
-    return miembros.filter(m => (!filtro.cat || m.categoria === filtro.cat) && (!t ||
+    return miembros.filter(m => (filtro.cat ? m.categoria === filtro.cat : (filtro.tropas || !catOculta(m.categoria)))
+      && (filtro.inactivos || m.activo) && (!t ||
       [m.nombre, m.grado, m.numero_clon, m.nombre_jedi, m.nombre_iconico, m.elite, ELITES[m.elite], m.discord_id, m.steam_id, m.steam_id64]
         .some(v => String(v || '').toLowerCase().includes(t))));
   }
 
   function pintar() {
-    $('#resumen-miembros').innerHTML = Object.entries(CATEGORIAS_MIEMBRO).map(([k, t]) =>
+    $('#resumen-miembros').innerHTML = Object.entries(CATEGORIAS_MIEMBRO).filter(([k, c]) => filtro.tropas || !c.oculta).map(([k, c]) =>
       `<div class="tarjeta tarjeta-link" data-cat="${k}"><div class="dato-grande">${miembros.filter(m => m.categoria === k && m.activo).length}</div>
-       <div class="dato-etiqueta">${esc(t)}</div></div>`).join('');
+       <div class="dato-etiqueta">${esc(c.titulo)} activos</div></div>`).join('');
     const lista = filtrados();
     if (!lista.length) {
       $('#cuerpo-miembros').innerHTML = `<tr><td colspan="${nCols}" class="vacio">${miembros.length ? 'Ningún miembro coincide con el filtro.' : 'Todavía no hay miembros cargados.'}</td></tr>`;
@@ -587,7 +696,7 @@ async function vistaMiembros(cont) {
     for (const cat of ORDEN_CAT) {
       const grupo = lista.filter(m => m.categoria === cat);
       if (!grupo.length) continue;
-      html += `<tr class="fila-grupo"><td colspan="${nCols}">${esc(CATEGORIAS_MIEMBRO[cat])} <span>${grupo.length}</span></td></tr>`;
+      html += `<tr class="fila-grupo"><td colspan="${nCols}">${esc(tituloCat(cat))} <span>${grupo.length}</span></td></tr>`;
       html += grupo.map(filaHTML).join('');
     }
     const otros = lista.filter(m => !ORDEN_CAT.includes(m.categoria));
@@ -640,7 +749,10 @@ async function vistaMiembros(cont) {
           <label class="campo"><span>SteamID64</span><input name="steam_id64" maxlength="20" class="mono" value="${esc(m.steam_id64)}" placeholder="7656119…"></label>
         </div>
         <p class="ayuda" id="aviso-steam" style="margin:-6px 0 12px">Completá uno de los dos y el otro se calcula solo.</p>
-        <label class="campo"><span>En el rango actual desde</span><input name="fecha_rango" type="date" value="${esc(m.fecha_rango || '')}"></label>
+        <div class="fila-campos">
+          <label class="campo"><span>En el rango actual desde</span><input name="fecha_rango" type="date" value="${esc(m.fecha_rango || '')}"></label>
+          <label class="campo"><span>Fecha de ingreso</span><input name="fecha_ingreso" type="date" value="${esc(m.fecha_ingreso || '')}"></label>
+        </div>
         <label class="campo"><span>Notas</span><textarea name="notas" maxlength="500">${esc(m.notas)}</textarea></label>
         <label class="interruptor" style="margin-bottom:16px"><input type="checkbox" name="activo" ${m.activo ? 'checked' : ''}>
           <span>Activo<br><small style="color:var(--texto-3)">Los inactivos no aparecen en las tablas, salvo en los meses donde tengan datos.</small></span></label>
@@ -669,7 +781,7 @@ async function vistaMiembros(cont) {
             nombre: f.nombre.value.trim(), grado: f.grado.value.trim(), categoria: f.categoria.value,
             numero_clon: f.numero_clon.value.trim(), nombre_jedi: f.nombre_jedi.value.trim(),
             nombre_iconico: f.nombre_iconico.value || 'No', elite: f.elite.value, discord_id: did,
-            steam_id: sid, steam_id64: s64, fecha_rango: f.fecha_rango.value || null,
+            steam_id: sid, steam_id64: s64, fecha_rango: f.fecha_rango.value || null, fecha_ingreso: f.fecha_ingreso.value || null,
             notas: f.notas.value.trim(), activo: f.activo.checked });
           miembros = ordenarMiembros(m.id ? miembros.map(x => x.id === g.id ? g : x) : [...miembros, g]);
           cerrarModal(); pintar(); aviso('Miembro guardado.');
@@ -682,7 +794,7 @@ async function vistaMiembros(cont) {
     const enc = ['Rango', 'Nombre clon', 'N° clon', 'Nombre Jedi', 'Icónico', 'Categoría', 'Élite',
       'SteamID', 'SteamID64', 'Discord', 'En el rango desde', 'Antigüedad en el rango', 'Estado', 'Notas'];
     const filas = filtrados().map(m => [m.grado, m.nombre, m.numero_clon, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
-      CATEGORIAS_MIEMBRO[m.categoria] || m.categoria, ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id, m.fecha_rango || '',
+      tituloCat(m.categoria), ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id, m.fecha_rango || '',
       antiguedad(m.fecha_rango), m.activo ? 'Activo' : 'Inactivo', m.notas]);
     // El ="..." evita que Excel convierta SteamID64 y Discord ID en notación científica
     descargar('miembros_legion.csv', [enc, ...filas].map((r, n) => r.map((v, i) => n && (i === 8 || i === 9) && v ? `="${v}"` : celdaCSV(v)).join(';')).join('\r\n'));
@@ -690,6 +802,8 @@ async function vistaMiembros(cont) {
 
   $('#buscar').oninput = e => { filtro.texto = e.target.value; pintar(); };
   $('#filtro-cat').onchange = e => { filtro.cat = e.target.value; pintar(); };
+  $('#ver-tropas').onchange = e => { filtro.tropas = e.target.checked; pintar(); };
+  $('#ver-inactivos').onchange = e => { filtro.inactivos = e.target.checked; pintar(); };
   $('#resumen-miembros').onclick = ev => {
     const t = ev.target.closest('[data-cat]'); if (!t) return;
     filtro.cat = filtro.cat === t.dataset.cat ? '' : t.dataset.cat; $('#filtro-cat').value = filtro.cat; pintar();
@@ -809,68 +923,106 @@ async function vistaCalendario(cont) {
 }
 
 /* ============================================================ REGLAMENTO */
+// Cada sección es una fila de la tabla "reglamento": datos = { titulo, texto }
 async function vistaReglamento(cont) {
-  let filas = await api.listarReglamento();
+  let secciones = await api.listarReglamento();
   const editable = puedeEditar();
-  const cols = COLUMNAS_REGLAMENTO;
 
   cont.innerHTML = `
     <div class="herramientas">
-      <p style="margin:0;color:var(--texto-2)">Normas y horarios de las actividades. Las filas bloqueadas 🔒 no se pueden modificar hasta desbloquearlas.</p>
+      <p style="margin:0;color:var(--texto-2)">Normas del calendario. Las secciones bloqueadas 🔒 no se pueden modificar hasta desbloquearlas.</p>
       <span class="espacio"></span>
-      <button class="btn chico" id="btn-csv-reg">Exportar CSV</button>
-      ${editable ? '<button class="btn primario" id="btn-fila">+ Agregar fila</button>' : ''}
+      ${editable ? '<button class="btn primario" id="btn-seccion">+ Agregar sección</button>' : ''}
     </div>
-    <div class="envoltorio-tabla"><table class="datos"><thead><tr>
-      ${cols.map(c => `<th>${esc(c.nombre)}</th>`).join('')}${editable ? '<th></th>' : ''}
-    </tr></thead><tbody id="cuerpo-reg"></tbody></table></div>`;
+    <div id="lista-reglamento" class="reglamento"></div>`;
+
+  // Texto con formato simple: líneas con "•" o "-" se muestran como viñetas; ``` como bloque de código
+  function formatear(texto) {
+    const lineas = String(texto || '').split('\n');
+    let html = '', lista = false, codigo = false;
+    for (const l of lineas) {
+      if (l.trim().startsWith('```')) {
+        if (lista) { html += '</ul>'; lista = false; }
+        html += codigo ? '</pre>' : '<pre class="bloque-codigo">'; codigo = !codigo; continue;
+      }
+      if (codigo) { html += esc(l) + '\n'; continue; }
+      const vin = /^\s*[•\-–]\s+(.*)/.exec(l);
+      if (vin) { if (!lista) { html += '<ul>'; lista = true; } html += `<li>${esc(vin[1])}</li>`; continue; }
+      if (lista) { html += '</ul>'; lista = false; }
+      html += l.trim() ? `<p>${esc(l)}</p>` : '';
+    }
+    if (lista) html += '</ul>';
+    if (codigo) html += '</pre>';
+    return html;
+  }
 
   function pintar() {
-    $('#cuerpo-reg').innerHTML = filas.length ? filas.map(f => {
-      const bloq = f.bloqueado || !editable;
-      return `<tr class="${f.bloqueado ? 'bloqueada' : ''}" data-id="${f.id}">
-        ${cols.map(c => `<td class="editable"><textarea rows="1" data-col="${c.clave}" ${bloq ? 'readonly' : ''}>${esc(f.datos?.[c.clave])}</textarea></td>`).join('')}
-        ${editable ? `<td class="acciones"><button class="btn chico" data-bloq title="${f.bloqueado ? 'Desbloquear' : 'Bloquear'} fila">${f.bloqueado ? '🔓' : '🔒'}</button>
-          <button class="btn chico peligro" data-borrar ${f.bloqueado ? 'disabled' : ''}>Borrar</button></td>` : ''}
-      </tr>`;
-    }).join('') : `<tr><td colspan="${cols.length + 1}" class="vacio">Todavía no hay filas en el reglamento.</td></tr>`;
-    $$('#cuerpo-reg textarea').forEach(ajustarAlto);
+    $('#lista-reglamento').innerHTML = secciones.length ? secciones.map(s => `
+      <section class="tarjeta seccion-reglamento ${s.bloqueado ? 'bloqueada' : ''}" data-id="${s.id}">
+        <header>
+          <h3>${esc(s.datos?.titulo || 'Sin título')}${s.bloqueado ? ' <span title="Bloqueada">🔒</span>' : ''}</h3>
+          ${editable ? `<div class="acciones">
+            <button class="btn chico" data-subir title="Subir">↑</button>
+            <button class="btn chico" data-bajar title="Bajar">↓</button>
+            <button class="btn chico" data-bloq>${s.bloqueado ? '🔓 Desbloquear' : '🔒 Bloquear'}</button>
+            <button class="btn chico" data-editar ${s.bloqueado ? 'disabled' : ''}>Editar</button>
+            <button class="btn chico peligro" data-borrar ${s.bloqueado ? 'disabled' : ''}>Borrar</button>
+          </div>` : ''}
+        </header>
+        <div class="texto-reglamento">${formatear(s.datos?.texto)}</div>
+      </section>`).join('') : '<div class="vacio">Todavía no hay secciones en el reglamento.</div>';
   }
-  function ajustarAlto(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
 
-  const filaDe = el => filas.find(f => f.id == el.closest('tr').dataset.id);
-  const cuerpo = $('#cuerpo-reg');
-  cuerpo.addEventListener('input', ev => { if (ev.target.tagName === 'TEXTAREA') ajustarAlto(ev.target); });
-  cuerpo.addEventListener('change', async ev => {
-    if (ev.target.tagName !== 'TEXTAREA') return;
-    const f = filaDe(ev.target);
-    const datos = { ...f.datos, [ev.target.dataset.col]: ev.target.value.trim() };
-    try { const g = await api.guardarFilaReglamento({ id: f.id, datos }); Object.assign(f, g); aviso('Guardado.'); } catch (e) { fallo(e); }
-  });
-  cuerpo.addEventListener('click', async ev => {
-    const bq = ev.target.closest('[data-bloq]'), bo = ev.target.closest('[data-borrar]');
-    if (bq) {
-      const f = filaDe(bq);
-      try { Object.assign(f, await api.guardarFilaReglamento({ id: f.id, bloqueado: !f.bloqueado })); pintar(); } catch (e) { fallo(e); }
-    }
-    if (bo) {
-      const f = filaDe(bo);
-      if (!await confirmar('Borrar fila', '¿Borrar esta fila del reglamento?', 'Borrar')) return;
-      try { await api.borrarFilaReglamento(f.id); filas = filas.filter(x => x.id !== f.id); pintar(); } catch (e) { fallo(e); }
-    }
-  });
-  if (editable) $('#btn-fila').onclick = async () => {
+  function editar(s = { datos: { titulo: '', texto: '' } }) {
+    abrirModal(s.id ? 'Editar sección' : 'Nueva sección', `
+      <form id="form-seccion">
+        <label class="campo"><span>Título</span><input name="titulo" required maxlength="120" value="${esc(s.datos?.titulo)}"></label>
+        <label class="campo"><span>Texto</span><textarea name="texto" rows="12" style="min-height:240px">${esc(s.datos?.texto)}</textarea></label>
+        <p class="ayuda" style="margin:-6px 0 12px">Empezá una línea con "• " para hacer una viñeta. Encerrá un ejemplo entre líneas con \`\`\` para mostrarlo como formato.</p>
+        <div class="modal-pie"><button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn primario">Guardar</button></div>
+      </form>`, c => {
+      $('[data-cancelar]', c).onclick = cerrarModal;
+      $('#form-seccion', c).onsubmit = async ev => {
+        ev.preventDefault();
+        const f = ev.target, datos = { titulo: f.titulo.value.trim(), texto: f.texto.value.replace(/\s+$/, '') };
+        try {
+          if (s.id) Object.assign(s, await api.guardarFilaReglamento({ id: s.id, datos }));
+          else secciones.push(await api.guardarFilaReglamento({ orden: (secciones.at(-1)?.orden || 0) + 1, datos, bloqueado: false }));
+          cerrarModal(); pintar(); aviso('Sección guardada.');
+        } catch (e) { fallo(e); }
+      };
+    });
+  }
+
+  async function mover(s, dir) {
+    const i = secciones.indexOf(s), j = i + dir;
+    if (j < 0 || j >= secciones.length) return;
+    const otra = secciones[j];
     try {
-      const n = await api.guardarFilaReglamento({ orden: (filas.at(-1)?.orden || 0) + 1, datos: {}, bloqueado: false });
-      filas.push(n); pintar();
-      $(`tr[data-id="${n.id}"] textarea`).focus();
+      const [a, b] = [s.orden, otra.orden === s.orden ? s.orden + dir : otra.orden];
+      Object.assign(s, await api.guardarFilaReglamento({ id: s.id, orden: b }));
+      Object.assign(otra, await api.guardarFilaReglamento({ id: otra.id, orden: a }));
+      secciones.sort((x, y) => x.orden - y.orden || x.id - y.id); pintar();
     } catch (e) { fallo(e); }
+  }
+
+  $('#lista-reglamento').onclick = async ev => {
+    const sec = ev.target.closest('[data-id]'); if (!sec) return;
+    const s = secciones.find(x => x.id == sec.dataset.id);
+    if (ev.target.closest('[data-editar]')) editar(s);
+    else if (ev.target.closest('[data-subir]')) mover(s, -1);
+    else if (ev.target.closest('[data-bajar]')) mover(s, 1);
+    else if (ev.target.closest('[data-bloq]')) {
+      try { Object.assign(s, await api.guardarFilaReglamento({ id: s.id, bloqueado: !s.bloqueado })); pintar(); } catch (e) { fallo(e); }
+    } else if (ev.target.closest('[data-borrar]')) {
+      if (!await confirmar('Borrar sección', `¿Borrar la sección "${s.datos?.titulo}"?`, 'Borrar')) return;
+      try { await api.borrarFilaReglamento(s.id); secciones = secciones.filter(x => x !== s); pintar(); } catch (e) { fallo(e); }
+    }
   };
-  $('#btn-csv-reg').onclick = () => descargar('reglamento_calendario.csv',
-    [cols.map(c => c.nombre), ...filas.map(f => cols.map(c => f.datos?.[c.clave] ?? ''))].map(r => r.map(celdaCSV).join(';')).join('\r\n'));
+  if (editable) $('#btn-seccion').onclick = () => editar();
   estado.limpiezas.push(api.suscribir('reglamento', async () => {
-    if (document.activeElement?.closest?.('#cuerpo-reg')) return;
-    try { filas = await api.listarReglamento(); pintar(); } catch {}
+    if (!$('#modal-fondo').hidden) return;
+    try { secciones = await api.listarReglamento(); pintar(); } catch {}
   }));
   pintar();
 }

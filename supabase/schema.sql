@@ -28,7 +28,7 @@ insert into public.ajustes (clave, valor) values ('modo_abierto', 'true')
 
 -- ---------------------------------------------------------------------
 -- 3. MIEMBROS DE LA LEGIÓN
---    categoria: comandantes | oficiales | suboficiales | elites | tropas
+--    categoria: comandantes | oficiales | suboficiales | cabos | soldados
 --    nombre = nombre clon
 -- ---------------------------------------------------------------------
 create table if not exists public.miembros (
@@ -45,6 +45,7 @@ create table if not exists public.miembros (
   discord_id      text default '',
   elite           text default '',
   fecha_rango     date,
+  fecha_ingreso   date,
   notas           text default '',
   activo          boolean not null default true,
   creado_en       timestamptz not null default now()
@@ -58,15 +59,16 @@ create table if not exists public.registros (
   categoria       text   not null,
   anio            int    not null,
   mes             int    not null check (mes between 1 and 12),
+  periodo         text   not null default '',   -- inicio del período (Soldados/Cabos); vacío en los mensuales
   miembro_id      bigint not null references public.miembros(id) on delete cascade,
   columna         text   not null,
   valor           text,
   bloqueado       boolean not null default false,
   actualizado_por uuid references auth.users(id) on delete set null,
   actualizado_en  timestamptz not null default now(),
-  unique (categoria, anio, mes, miembro_id, columna)
+  constraint registros_celda_unica unique (categoria, anio, mes, periodo, miembro_id, columna)
 );
-create index if not exists registros_mes_idx on public.registros (categoria, anio, mes);
+create index if not exists registros_mes_idx on public.registros (categoria, anio, mes, periodo);
 
 -- ---------------------------------------------------------------------
 -- 5. EVENTOS DEL CALENDARIO

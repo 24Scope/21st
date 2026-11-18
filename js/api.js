@@ -62,16 +62,22 @@ function crearApiSupabase() {
     },
     async borrarMiembro(id) { ok(await sb.from('miembros').delete().eq('id', id)); },
 
-    async listarRegistros(categoria, anio, mes) {
-      return ok(await sb.from('registros').select('*').match({ categoria, anio, mes }));
+    // hoja = { anio, mes, periodo }  (periodo = '' en los registros mensuales)
+    async listarRegistros(categoria, hoja) {
+      return ok(await sb.from('registros').select('*').match({ categoria, anio: hoja.anio, mes: hoja.mes, periodo: hoja.periodo || '' }));
     },
     async listarRegistrosAnio(anio) {
-      return ok(await sb.from('registros').select('categoria,mes,miembro_id,columna,valor').eq('anio', anio));
+      const filas = [];
+      for (let desde = 0; ; desde += 1000) {   // Supabase devuelve como máximo 1000 filas por consulta
+        const lote = ok(await sb.from('registros').select('categoria,anio,mes,periodo,miembro_id,columna,valor').eq('anio', anio).range(desde, desde + 999));
+        filas.push(...lote);
+        if (lote.length < 1000) return filas;
+      }
     },
     // celdas: [{categoria, anio, mes, miembro_id, columna, valor?, bloqueado?}]
     async guardarCeldas(celdas) {
       return ok(await sb.from('registros')
-        .upsert(celdas, { onConflict: 'categoria,anio,mes,miembro_id,columna' })
+        .upsert(celdas.map(c => ({ periodo: '', ...c })), { onConflict: 'categoria,anio,mes,periodo,miembro_id,columna' })
         .select());
     },
 
@@ -119,15 +125,14 @@ function crearApiDemo() {
   function sembrar() {
     const db = nuevaBase();
     const ejemplos = [
-      ['Pepito', 'suboficiales', 'Sargento'], ['Juan Pérez', 'suboficiales', 'Cabo'],
+      ['Pepito', 'suboficiales', 'SGT'], ['Juan Pérez', 'cabos', 'CBO'],
       ['Marcos', 'oficiales', 'TTE'], ['Laura', 'comandantes', 'CMD'],
-      ['Nico', 'elites', 'Élite'], ['Sofi', 'tropas', 'Soldado'], ['Tomás', 'tropas', 'Recluta'],
+      ['Nico', 'suboficiales', 'SGTM'], ['Sofi', 'soldados', 'SDO1'], ['Tomás', 'soldados', 'SDO'],
     ];
     for (const [nombre, categoria, grado] of ejemplos)
       db.miembros.push({ id: id(db), nombre, categoria, grado, notas: '', activo: true, creado_en: new Date().toISOString() });
     db.reglamento.push({ id: id(db), orden: 1, bloqueado: true, datos: {
-      actividad: 'Entrenamiento general', dias: 'Martes y jueves', horario: '21:00', responsable: 'Oficial a cargo',
-      requisitos: 'Todos los rangos', observaciones: 'Ejemplo de fila bloqueada' } });
+      titulo: 'Puntualidad', texto: '• Respetar el horario y ser puntual.\n• Ejemplo de sección bloqueada.' } });
     escribir(db);
     return db;
   }
@@ -185,8 +190,8 @@ function crearApiDemo() {
       db.registros = db.registros.filter(r => r.miembro_id != mid); escribir(db);
     },
 
-    async listarRegistros(categoria, anio, mes) {
-      return leer().registros.filter(r => r.categoria === categoria && r.anio === anio && r.mes === mes);
+    async listarRegistros(categoria, hoja) {
+      return leer().registros.filter(r => r.categoria === categoria && r.anio === hoja.anio && r.mes === hoja.mes && (r.periodo || '') === (hoja.periodo || ''));
     },
     async listarRegistrosAnio(anio) { return leer().registros.filter(r => r.anio === anio); },
     async guardarCeldas(celdas) {
@@ -194,7 +199,7 @@ function crearApiDemo() {
       const u = usuarioActual(db); const res = [];
       for (const c of celdas) {
         let r = db.registros.find(r => r.categoria === c.categoria && r.anio === c.anio && r.mes === c.mes
-          && r.miembro_id == c.miembro_id && r.columna === c.columna);
+          && (r.periodo || '') === (c.periodo || '') && r.miembro_id == c.miembro_id && r.columna === c.columna);
         if (r && r.bloqueado && c.bloqueado !== false && 'valor' in c && c.valor !== r.valor)
           throw new Error('La celda está bloqueada.');
         if (!r) { r = { id: id(db), valor: null, bloqueado: false, ...c }; db.registros.push(r); }
