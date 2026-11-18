@@ -114,6 +114,10 @@ async function entrarApp(perfil) {
   $('#app').hidden = false;
   $('#usuario-nombre').textContent = perfil.nombre;
   $('#usuario-rango').textContent = nombreRango(perfil.rango);
+  if (perfil.miembro_id) api.listarMiembros().then(ms => {
+    const m = ms.find(x => x.id === perfil.miembro_id);
+    if (m) $('#usuario-rango').textContent = `${nombreRango(perfil.rango)} · ${m.grado} ${m.nombre}`;
+  }).catch(() => {});
   $('#usuario-avatar').textContent = (perfil.nombre || '?').trim().charAt(0).toUpperCase();
   pintarChipPermiso();
   pintarMenu();
@@ -154,7 +158,7 @@ function navegar() {
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
   cont.scrollTop = 0;
 
-  const vistas = { inicio: vistaInicio, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios };
+  const vistas = { inicio: vistaInicio, actividad: vistaActividad, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios };
   const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
   Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
 }
@@ -1027,11 +1031,152 @@ async function vistaReglamento(cont) {
   pintar();
 }
 
+/* ============================================================ REGISTRAR ACTIVIDAD */
+const CATS_FORMULARIO = ['comandantes', 'oficiales', 'suboficiales'];
+// En qué registros cuenta cada miembro (igual que en la función registrar_actividad de la base)
+function registroAplica(registro, m) {
+  if (registro === 'oficiales') return ['comandantes', 'oficiales'].includes(m.categoria);
+  if (registro === 'suboficiales') return m.categoria === 'suboficiales';
+  if (registro === 'elites') return !!m.elite;
+  if (registro === 'bu') return true;
+  return false;
+}
+const nombreColumna = (registro, clave) => CATEGORIAS[registro]?.columnas.find(c => c.clave === clave)?.nombre || clave;
+
+async function vistaActividad(cont) {
+  let [tipos, miembros, actividades] = await Promise.all([api.listarTiposActividad(), api.listarMiembros(), api.listarActividades()]);
+  const porId = new Map(miembros.map(m => [m.id, m]));
+  const yo = porId.get(estado.perfil.miembro_id);
+  const candidatos = ordenarMiembros(miembros.filter(m => m.activo && CATS_FORMULARIO.includes(m.categoria) && m.id !== yo?.id));
+  const filtro = { ver: 'todas' };
+  const hoyISO = fechaISO(new Date());
+  const tipoDe = id => tipos.find(t => t.id === id);
+  const etiquetaMiembro = id => { const m = porId.get(id); return m ? `${m.grado} ${m.nombre}` : `#${id}`; };
+
+  cont.innerHTML = `
+    <div class="actividad-grid">
+      <section class="tarjeta" id="panel-form"></section>
+      <section>
+        <div class="herramientas">
+          <h3 style="margin:0;font-size:15px">Historial de actividades</h3>
+          <span class="espacio"></span>
+          <select class="entrada" id="ver-act" style="max-width:200px;height:32px">
+            <option value="todas">Todas</option><option value="mias">Solo las mías</option><option value="anuladas">Anuladas</option>
+          </select>
+        </div>
+        <div class="envoltorio-tabla"><table class="datos tabla-actividades"><thead><tr>
+          <th>Fecha</th><th>Actividad</th><th>Participantes</th><th>Cargada por</th><th>Informe</th><th></th>
+        </tr></thead><tbody id="cuerpo-act"></tbody></table></div>
+      </section>
+    </div>`;
+
+  /* ---------- formulario */
+  function pintarFormulario() {
+    const panel = $('#panel-form');
+    if (!yo) {
+      panel.innerHTML = `<h3>Registrar actividad</h3>
+        <p style="color:var(--texto-2);line-height:1.5;margin:0">Tu cuenta todavía no está vinculada a un miembro de la legión, así que no podés cargar actividades.
+        Pedile a un administrador que la vincule desde <strong>Usuarios y rangos</strong>.</p>`;
+      return;
+    }
+    panel.innerHTML = `
+      <h3>Registrar actividad</h3>
+      <p class="dato-etiqueta" style="margin:-6px 0 14px">Cargás como <strong style="color:var(--texto)">${esc(yo.grado)} ${esc(yo.nombre)}</strong></p>
+      <form id="form-act">
+        <label class="campo"><span>Tipo de actividad</span>
+          <select name="tipo" required><option value="">— Elegir —</option>${tipos.map(t => `<option value="${esc(t.id)}">${esc(t.nombre)}</option>`).join('')}</select></label>
+        <div class="fila-campos">
+          <label class="campo"><span>Fecha</span><input name="fecha" type="date" required max="${hoyISO}" value="${hoyISO}"></label>
+          <label class="campo"><span>Hora</span><input name="hora" type="time"></label>
+        </div>
+        <div class="campo"><span>¿La hiciste con alguien más? (opcional)</span>
+          <input class="entrada" id="buscar-acomp" placeholder="Buscar miembro…" autocomplete="off">
+          <div class="lista-acomp" id="lista-acomp">${candidatos.map(m => `
+            <label class="item-acomp" data-texto="${esc((m.grado + ' ' + m.nombre + ' ' + (m.discord_id || '')).toLowerCase())}">
+              <input type="checkbox" value="${m.id}"> <span><strong>${esc(m.grado)}</strong> ${esc(m.nombre)}</span></label>`).join('')}</div>
+          <div class="dato-etiqueta" id="elegidos-acomp"></div>
+        </div>
+        <label class="campo"><span>Link del informe en Discord</span>
+          <input name="link" type="url" required placeholder="https://discord.com/channels/…" class="mono"></label>
+        <label class="campo"><span>Notas (opcional)</span><textarea name="notas" maxlength="500" style="min-height:60px"></textarea></label>
+        <div class="vista-previa" id="vista-previa"></div>
+        <div class="modal-pie"><button class="btn primario" id="btn-enviar-act">Enviar actividad</button></div>
+      </form>`;
+
+    const f = $('#form-act');
+    const elegidos = () => $$('#lista-acomp input:checked').map(i => +i.value);
+    const actualizar = () => {
+      const ids = elegidos();
+      $('#elegidos-acomp').textContent = ids.length ? 'Con: ' + ids.map(etiquetaMiembro).join(', ') : '';
+      const t = tipoDe(f.tipo.value);
+      if (!t) { $('#vista-previa').innerHTML = ''; return; }
+      const [anio, mes] = (f.fecha.value || hoyISO).split('-').map(Number);
+      const lineas = [yo.id, ...ids].map(id => {
+        const m = porId.get(id);
+        const suma = t.efectos.filter(e => (e.rol === 'todos' || (e.rol === 'autor' ? id === yo.id : id !== yo.id)) && registroAplica(e.registro, m))
+          .map(e => `${nombreColumna(e.registro, e.columna)} <span class="tenue">(${esc(CATEGORIAS[e.registro]?.titulo || e.registro)})</span>`);
+        return `<li><strong>${esc(m.grado)} ${esc(m.nombre)}</strong>: ${suma.length ? '+1 en ' + suma.join(', ') : '<span class="tenue">no suma en ninguna tabla</span>'}</li>`;
+      });
+      $('#vista-previa').innerHTML = `<div class="dato-etiqueta" style="margin-bottom:4px">Se va a sumar en ${MESES[mes - 1]} ${anio}:</div><ul>${lineas.join('')}</ul>`;
+    };
+    f.tipo.onchange = actualizar; f.fecha.onchange = actualizar;
+    $('#lista-acomp').onchange = actualizar;
+    $('#buscar-acomp').oninput = e => {
+      const q = e.target.value.trim().toLowerCase();
+      $$('#lista-acomp .item-acomp').forEach(l => { l.hidden = q && !l.dataset.texto.includes(q); });
+    };
+    f.onsubmit = async ev => {
+      ev.preventDefault();
+      const link = f.link.value.trim();
+      if (!/^https:\/\/([a-z]+\.)?(discord\.com|discordapp\.com)\//i.test(link)) return aviso('El link tiene que ser un enlace de Discord (https://discord.com/…).', 'error');
+      const btn = $('#btn-enviar-act'); btn.disabled = true;
+      try {
+        const nueva = await api.registrarActividad({ tipo: f.tipo.value, fecha: f.fecha.value, hora: f.hora.value, link, notas: f.notas.value.trim(), acompanantes: elegidos() });
+        actividades.unshift(nueva);
+        aviso(`Actividad registrada: ${tipoDe(nueva.tipo)?.nombre}. Se sumó a ${nueva.participantes.length} participante${nueva.participantes.length === 1 ? '' : 's'}.`);
+        pintarFormulario(); pintarHistorial();
+      } catch (e) { fallo(e); }
+      finally { const b = $('#btn-enviar-act'); if (b) b.disabled = false; }
+    };
+  }
+
+  /* ---------- historial */
+  function pintarHistorial() {
+    const lista = actividades.filter(a => filtro.ver === 'anuladas' ? a.anulada
+      : !a.anulada && (filtro.ver !== 'mias' || a.participantes.includes(yo?.id) || a.autor_perfil === estado.perfil.id));
+    $('#cuerpo-act').innerHTML = lista.length ? lista.map(a => {
+      const puedeAnular = !a.anulada && (esAdmin() || a.autor_perfil === estado.perfil.id);
+      return `<tr class="${a.anulada ? 'fila-inactiva' : ''}">
+        <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
+        <td><strong>${esc(tipoDe(a.tipo)?.nombre || a.tipo)}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
+        <td style="white-space:normal;min-width:160px">${a.participantes.map(etiquetaMiembro).map(esc).join(', ')}</td>
+        <td>${esc(etiquetaMiembro(a.autor_miembro))}<span class="sub">${new Date(a.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</span></td>
+        <td><a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir</a></td>
+        <td class="acciones">${a.anulada ? '<span class="etiqueta">Anulada</span>' : puedeAnular ? `<button class="btn chico peligro" data-anular="${a.id}">Anular</button>` : ''}</td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="6" class="vacio">${filtro.ver === 'anuladas' ? 'No hay actividades anuladas.' : 'Todavía no hay actividades cargadas.'}</td></tr>`;
+  }
+
+  $('#ver-act').onchange = e => { filtro.ver = e.target.value; pintarHistorial(); };
+  $('#cuerpo-act').onclick = async ev => {
+    const b = ev.target.closest('[data-anular]'); if (!b) return;
+    const a = actividades.find(x => x.id == b.dataset.anular);
+    if (!await confirmar('Anular actividad', `Se va a anular "${tipoDe(a.tipo)?.nombre}" del ${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')} y se descuenta de las tablas de ${a.participantes.length} participante${a.participantes.length === 1 ? '' : 's'}.`, 'Anular')) return;
+    try { Object.assign(a, await api.anularActividad(a.id)); pintarHistorial(); aviso('Actividad anulada y descontada.'); } catch (e) { fallo(e); }
+  };
+  estado.limpiezas.push(api.suscribir('actividades', async () => {
+    try { actividades = await api.listarActividades(); pintarHistorial(); } catch {}
+  }));
+  pintarFormulario();
+  pintarHistorial();
+}
+
 /* ============================================================ USUARIOS */
 async function vistaUsuarios(cont) {
   if (!esAdmin()) { cont.innerHTML = '<div class="vacio">Solo los administradores pueden ver esta sección.</div>'; return; }
-  let perfiles = await api.listarPerfiles();
+  let [perfiles, miembros] = await Promise.all([api.listarPerfiles(), api.listarMiembros()]);
   estado.ajustes = await api.obtenerAjustes();
+  const vinculables = ordenarMiembros(miembros.filter(m => m.activo && CATS_FORMULARIO.includes(m.categoria)));
 
   cont.innerHTML = `
     <div class="tarjeta" style="margin-bottom:18px">
@@ -1039,21 +1184,39 @@ async function vistaUsuarios(cont) {
         <span><strong>Modo abierto</strong><br><span style="color:var(--texto-2)">Mientras esté activo, cualquier cuenta registrada puede editar tablas, miembros, calendario y reglamento.
         Desactivalo cuando quieras que solo los Administradores editen (los Usuarios quedan en solo lectura).</span></span></label>
     </div>
-    <div class="envoltorio-tabla"><table class="datos"><thead><tr><th>Nombre</th><th>Email</th><th>Rango</th><th>Registrado</th></tr></thead>
+    <div class="envoltorio-tabla"><table class="datos"><thead><tr><th>Cuenta</th><th>Email</th><th>Rango</th><th>Miembro vinculado</th><th>Registrado</th></tr></thead>
     <tbody id="cuerpo-usuarios"></tbody></table></div>
-    <p class="ayuda">Los rangos nuevos se agregan en <code>js/config.js</code> (RANGOS). Cada sección del menú tiene un "rangoMinimo" para limitar quién la ve.</p>`;
+    <p class="ayuda">Vinculá cada cuenta con su miembro de la legión para que pueda cargar actividades en <a href="#/actividad">Registrar actividad</a>. Un miembro solo puede estar vinculado a una cuenta.
+    Los rangos nuevos se agregan en <code>js/config.js</code> (RANGOS).</p>`;
 
   const opciones = r => Object.entries(RANGOS).map(([n, t]) => `<option value="${n}" ${+n === r ? 'selected' : ''}>${n} · ${esc(t)}</option>`).join('');
+  const opcionesMiembro = p => `<option value="">— Sin vincular —</option>` + vinculables.map(m => {
+    const otro = perfiles.find(x => x.id !== p.id && x.miembro_id === m.id);
+    return `<option value="${m.id}" ${p.miembro_id === m.id ? 'selected' : ''} ${otro ? 'disabled' : ''}>${esc(m.grado)} ${esc(m.nombre)}${otro ? ` — cuenta ${esc(otro.nombre)}` : ''}</option>`;
+  }).join('');
   function pintar() {
     $('#cuerpo-usuarios').innerHTML = perfiles.map(p => `<tr>
       <td><strong>${esc(p.nombre)}</strong>${p.id === estado.perfil.id ? ' <span class="etiqueta">vos</span>' : ''}</td>
       <td style="color:var(--texto-2)">${esc(p.email)}</td>
-      <td><select class="entrada" style="height:32px;max-width:200px" data-id="${p.id}">${opciones(p.rango)}</select></td>
+      <td><select class="entrada" style="height:32px;max-width:200px" data-rango="${p.id}">${opciones(p.rango)}</select></td>
+      <td><select class="entrada" style="height:32px;max-width:240px" data-miembro="${p.id}">${opcionesMiembro(p)}</select></td>
       <td style="color:var(--texto-2)">${p.creado_en ? new Date(p.creado_en).toLocaleDateString('es-AR') : ''}</td></tr>`).join('');
   }
 
   $('#cuerpo-usuarios').onchange = async ev => {
-    const sel = ev.target; const p = perfiles.find(x => String(x.id) === sel.dataset.id); const nuevo = +sel.value;
+    const sel = ev.target;
+    if (sel.dataset.miembro) {
+      const p = perfiles.find(x => String(x.id) === sel.dataset.miembro);
+      const nuevo = sel.value ? +sel.value : null;
+      try {
+        await api.vincularMiembro(p.id, nuevo); p.miembro_id = nuevo;
+        if (p.id === estado.perfil.id) estado.perfil.miembro_id = nuevo;
+        aviso(nuevo ? `${p.nombre} quedó vinculada a ${miembros.find(m => m.id === nuevo)?.nombre}.` : `${p.nombre} quedó sin vincular.`);
+        pintar();
+      } catch (e) { fallo(e); pintar(); }
+      return;
+    }
+    const p = perfiles.find(x => String(x.id) === sel.dataset.rango); const nuevo = +sel.value;
     const admins = perfiles.filter(x => x.rango >= 2).length;
     if (p.rango >= 2 && nuevo < 2 && admins <= 1) { aviso('Tiene que quedar al menos un Administrador.', 'error'); sel.value = p.rango; return; }
     if (p.id === estado.perfil.id && nuevo < 2 && !await confirmar('Quitarte el rango', 'Vas a dejar de ser Administrador y perderás acceso a esta sección.', 'Continuar')) { sel.value = p.rango; return; }

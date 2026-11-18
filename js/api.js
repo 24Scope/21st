@@ -21,6 +21,7 @@ function crearApiSupabase() {
     if (/row-level security/i.test(m)) return new Error('No tenés permiso para hacer esto.');
     if (/bloqueada/i.test(m)) return new Error('La celda está bloqueada.');
     if (/miembros_iconico_unico/i.test(m)) return new Error('Ese nombre icónico ya lo tiene otro miembro.');
+    if (/perfiles_miembro_unico/i.test(m)) return new Error('Ese miembro ya está vinculado a otra cuenta.');
     return new Error(m);
   }
 
@@ -100,6 +101,27 @@ function crearApiSupabase() {
     },
     async borrarFilaReglamento(id) { ok(await sb.from('reglamento').delete().eq('id', id)); },
 
+    // ---- Actividades (las suma la base de datos con registrar_actividad / anular_actividad)
+    async listarTiposActividad() {
+      const [tipos, efectos] = await Promise.all([
+        sb.from('tipos_actividad').select('*').eq('activo', true).order('orden'),
+        sb.from('tipos_actividad_efectos').select('*'),
+      ]);
+      const t = ok(tipos), e = ok(efectos);
+      return t.map(x => ({ ...x, efectos: e.filter(y => y.tipo === x.id) }));
+    },
+    async listarActividades(limite = 200) {
+      return ok(await sb.from('actividades').select('*').order('creado_en', { ascending: false }).limit(limite));
+    },
+    async registrarActividad(a) {
+      return ok(await sb.rpc('registrar_actividad', { p_tipo: a.tipo, p_fecha: a.fecha, p_hora: a.hora || '',
+        p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [] }));
+    },
+    async anularActividad(id) { return ok(await sb.rpc('anular_actividad', { p_id: id })); },
+    async vincularMiembro(perfilId, miembroId) {
+      ok(await sb.from('perfiles').update({ miembro_id: miembroId || null }).eq('id', perfilId));
+    },
+
     suscribir(tabla, alCambiar) {
       const canal = sb.channel('rt-' + tabla + '-' + Math.random().toString(36).slice(2))
         .on('postgres_changes', { event: '*', schema: 'public', table: tabla }, alCambiar)
@@ -142,7 +164,7 @@ function crearApiDemo() {
     const u = db.usuarios.find(u => u.id == sid);
     return u || null;
   }
-  const perfil = u => u && ({ id: u.id, nombre: u.nombre, email: u.email, rango: u.rango, creado_en: u.creado_en });
+  const perfil = u => u && ({ id: u.id, nombre: u.nombre, email: u.email, rango: u.rango, creado_en: u.creado_en, miembro_id: u.miembro_id || null });
   const puedeEditar = db => { const u = usuarioActual(db); return !!u && (u.rango >= 2 || db.ajustes.modo_abierto === true); };
   const exigirEdicion = db => { if (!puedeEditar(db)) throw new Error('No tenés permiso para hacer esto.'); };
   const exigirAdmin = db => { const u = usuarioActual(db); if (!u || u.rango < 2) throw new Error('No tenés permiso para hacer esto.'); };
@@ -228,6 +250,15 @@ function crearApiDemo() {
       const n = { datos: {}, bloqueado: false, ...f, id: id(db) }; db.reglamento.push(n); escribir(db); return n;
     },
     async borrarFilaReglamento(rid) { const db = leer(); exigirEdicion(db); db.reglamento = db.reglamento.filter(r => r.id != rid); escribir(db); },
+
+    async listarTiposActividad() { return []; },
+    async listarActividades() { return []; },
+    async registrarActividad() { throw new Error('El registro de actividades funciona solo con Supabase conectado.'); },
+    async anularActividad() { throw new Error('El registro de actividades funciona solo con Supabase conectado.'); },
+    async vincularMiembro(uid, miembroId) {
+      const db = leer(); exigirAdmin(db);
+      db.usuarios.find(u => u.id == uid).miembro_id = miembroId || null; escribir(db);
+    },
 
     suscribir(tabla, alCambiar) {
       // Otras pestañas del mismo navegador

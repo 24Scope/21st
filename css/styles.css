@@ -306,3 +306,16 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .texto-reglamento li { margin-bottom: 4px; }
 .bloque-codigo { background: var(--superficie-2); border: 1px solid var(--borde); border-radius: 8px; padding: 10px 12px;
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; margin: 0 0 10px; }
+
+/* ------------------------------------------------------------ registrar actividad */
+.actividad-grid { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 18px; align-items: start; }
+.actividad-grid > section { min-width: 0; }
+.lista-acomp { max-height: 200px; overflow-y: auto; border: 1px solid var(--borde-fuerte); border-radius: 8px; padding: 4px; background: var(--superficie); }
+.item-acomp { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.item-acomp:hover { background: var(--superficie-2); }
+.item-acomp input { accent-color: var(--acento); }
+.vista-previa { font-size: 13px; background: var(--acento-suave); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.vista-previa:empty { display: none; }
+.vista-previa ul { margin: 0; padding-left: 18px; line-height: 1.6; }
+.tabla-actividades td { vertical-align: top; }
+@media (max-width: 1100px) { .actividad-grid { grid-template-columns: 1fr; } }
