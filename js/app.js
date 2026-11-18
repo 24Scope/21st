@@ -145,7 +145,8 @@ function pintarMenu() {
 
 function navegar() {
   if (!estado.perfil) return;
-  const id = (location.hash.replace(/^#\/?/, '') || 'inicio').split('?')[0];
+  const [id, consulta] = (location.hash.replace(/^#\/?/, '') || 'inicio').split('?');
+  estado.params = new URLSearchParams(consulta || '');
   const sec = seccionesVisibles().find(s => s.id === id) || seccionesVisibles()[0];
   estado.seccion = sec.id;
   estado.limpiezas.forEach(f => { try { f(); } catch {} });
@@ -158,7 +159,7 @@ function navegar() {
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
   cont.scrollTop = 0;
 
-  const vistas = { inicio: vistaInicio, actividad: vistaActividad, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios };
+  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios };
   const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
   Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
 }
@@ -349,7 +350,7 @@ async function vistaRegistro(cat) {
       </tr></thead><tbody>`;
     hoja.filas.forEach((m, f) => {
       html += `<tr class="${m.activo ? '' : 'inactivo'}"><td class="fijo col-n">${f + 1}</td>
-        <td class="fijo col-nombre" title="${esc(m.discord_id || '')}">${esc(m.nombre)}</td><td class="col-grado">${esc(m.grado)}</td>
+        <td class="fijo col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a></td><td class="col-grado">${esc(m.grado)}</td>
         ${fijas.map(x => `<td class="col-grado">${esc(valorFijo(m, x))}</td>`).join('')}`;
       cols.forEach((c, ci) => { html += `<td data-f="${f}" data-c="${ci}"></td>`; });
       html += `</tr>`;
@@ -663,7 +664,7 @@ async function vistaMiembros(cont) {
     const ant = antiguedad(m.fecha_rango);
     return `<tr class="${m.activo ? '' : 'fila-inactiva'}">
       <td><strong>${esc(m.grado) || '—'}</strong></td>
-      <td><strong>${esc(m.nombre)}</strong>${m.notas ? ` <span class="nota" title="${esc(m.notas)}">ⓘ</span>` : ''}</td>
+      <td><a class="link-perfil" href="#/perfil?id=${m.id}"><strong>${esc(m.nombre)}</strong></a>${m.notas ? ` <span class="nota" title="${esc(m.notas)}">ⓘ</span>` : ''}</td>
       <td class="mono">${esc(m.numero_clon) || '—'}</td>
       <td>${esc(m.nombre_jedi) || '<span class="tenue">—</span>'}</td>
       <td>${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : '<span class="tenue">No</span>'}</td>
@@ -1149,7 +1150,7 @@ async function vistaActividad(cont) {
       return `<tr class="${a.anulada ? 'fila-inactiva' : ''}">
         <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
         <td><strong>${esc(tipoDe(a.tipo)?.nombre || a.tipo)}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
-        <td style="white-space:normal;min-width:160px">${a.participantes.map(etiquetaMiembro).map(esc).join(', ')}</td>
+        <td style="white-space:normal;min-width:160px">${a.participantes.map(id => `<a class="link-perfil" href="#/perfil?id=${id}">${esc(etiquetaMiembro(id))}</a>`).join(', ')}</td>
         <td>${esc(etiquetaMiembro(a.autor_miembro))}<span class="sub">${new Date(a.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</span></td>
         <td><a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir</a></td>
         <td class="acciones">${a.anulada ? '<span class="etiqueta">Anulada</span>' : puedeAnular ? `<button class="btn chico peligro" data-anular="${a.id}">Anular</button>` : ''}</td>
@@ -1169,6 +1170,166 @@ async function vistaActividad(cont) {
   }));
   pintarFormulario();
   pintarHistorial();
+}
+
+/* ============================================================ PERFIL DE UN MIEMBRO */
+// Totales que se muestran arriba: cada uno suma estas columnas en estos registros
+const TOTALES_PERFIL = [
+  { titulo: 'Actividad total', ayuda: 'Act. total de Oficiales/Suboficiales', calc: { oficiales: 'act_total', suboficiales: 'act_total' } },
+  { titulo: 'Entrenamientos', cols: { oficiales: ['ents_21', 'ents_esp', 'ents_bu'], suboficiales: ['ents_21', 'ents_esp', 'ents_bu'], cabos: ['ents'], soldados: ['ents'] } },
+  { titulo: 'Roles de PJ', cols: { oficiales: ['roles_pj'], suboficiales: ['roles_pj'], cabos: ['roles_pj'], soldados: ['roles_pj'] } },
+  { titulo: 'Miniroles', cols: { oficiales: ['minirol'], suboficiales: ['minirol'] } },
+  { titulo: 'Trys', cols: { oficiales: ['try_bu', 'try_esp', 'try_21'], suboficiales: ['try_esp', 'try_21'], elites: ['n_trys'] } },
+  { titulo: 'Misiones', cols: { bu: ['mis_21', 'mis_bu'], elites: ['misiones'], cabos: ['misiones'], soldados: ['misiones'] } },
+  { titulo: 'Capacitaciones', cols: { elites: ['n_cap'], bu: ['cap_ent', 'cap_part'], cabos: ['caps'], soldados: ['caps'] } },
+  { titulo: 'Liderazgos', cols: { cabos: ['lider', 'sublider'], soldados: ['lider', 'sublider'] } },
+  { titulo: 'Actividad BU', calc: { bu: 'total' } },
+];
+
+async function vistaPerfil(cont) {
+  const idParam = estado.params?.get('id');
+  const miembroId = idParam ? +idParam : estado.perfil.miembro_id;
+  if (!miembroId) {
+    cont.innerHTML = `<div class="vacio">Tu cuenta todavía no está vinculada a un miembro de la legión.<br>Pedile a un administrador que la vincule en <strong>Usuarios y rangos</strong>,
+      o entrá a <a href="#/miembros">Miembros de la legión</a> y tocá el nombre de alguien para ver su perfil.</div>`;
+    return;
+  }
+  const [miembros, registros, actividades, tipos, perfiles] = await Promise.all([
+    api.listarMiembros(), api.listarRegistrosMiembro(miembroId), api.listarActividadesMiembro(miembroId),
+    api.listarTiposActividad(), esAdmin() ? api.listarPerfiles() : Promise.resolve([]),
+  ]);
+  const porId = new Map(miembros.map(m => [m.id, m]));
+  const m = porId.get(miembroId);
+  if (!m) { cont.innerHTML = '<div class="vacio">Ese miembro no existe o fue borrado.</div>'; return; }
+  const etiqueta = id => { const x = porId.get(id); return x ? `${x.grado} ${x.nombre}` : `#${id}`; };
+  const tipoNombre = id => tipos.find(t => t.id === id)?.nombre || id;
+  const cuenta = perfiles.find(p => p.miembro_id === m.id);
+  $('#titulo-seccion').textContent = `Perfil · ${m.grado} ${m.nombre}`;
+  document.title = `${m.grado} ${m.nombre} · ${NOMBRE_SITIO}`;
+
+  // Agrupar celdas por hoja (registro + mes/período)
+  const hojas = new Map();
+  for (const r of registros) {
+    if (r.valor === null || r.valor === '') continue;   // celdas vacías (por ejemplo, tras anular una actividad)
+    const k = `${r.categoria}|${r.anio}|${r.mes}|${r.periodo || ''}`;
+    if (!hojas.has(k)) hojas.set(k, { categoria: r.categoria, anio: r.anio, mes: r.mes, periodo: r.periodo || '', vals: {} });
+    hojas.get(k).vals[r.columna] = r.valor;
+  }
+  for (const h of hojas.values()) {
+    const cfg = CATEGORIAS[h.categoria];
+    h.calc = cfg ? calcularFila(cfg, c => h.vals[c]) : {};
+  }
+  const anios = [...new Set([...hojas.values()].map(h => h.anio).concat(actividades.map(a => +a.fecha.slice(0, 4))))].sort((a, b) => b - a);
+  const filtro = { anio: '' };
+
+  const dato = (titulo, valor) => valor ? `<div><span class="dato-etiqueta">${titulo}</span><div>${valor}</div></div>` : '';
+  const ant = antiguedad(m.fecha_rango);
+  cont.innerHTML = `
+    <div class="perfil-cabecera tarjeta">
+      <div class="perfil-avatar">${esc((m.nombre || '?').charAt(0).toUpperCase())}</div>
+      <div class="perfil-principal">
+        <div class="perfil-nombre">${esc(m.grado)} ${esc(m.nombre)}
+          ${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : ''}
+          ${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : ''}
+          <span class="etiqueta ${m.activo ? 'admin' : ''}">${m.activo ? 'Activo' : 'Inactivo'}</span></div>
+        <div class="perfil-datos">
+          ${dato('Categoría', esc(tituloCat(m.categoria)))}
+          ${dato('N° de clon', esc(m.numero_clon))}
+          ${dato('Nombre Jedi', esc(m.nombre_jedi))}
+          ${dato('Discord', m.discord_id ? `<span class="mono">${esc(m.discord_id)}</span>` : '')}
+          ${dato('SteamID', m.steam_id ? `<span class="mono">${esc(m.steam_id)}</span>` + (m.steam_id64 ? ` · <a href="https://steamcommunity.com/profiles/${esc(m.steam_id64)}" target="_blank" rel="noopener noreferrer">perfil de Steam</a>` : '') : '')}
+          ${dato('En el rango', ant ? `${esc(ant)} <span class="tenue">(desde ${new Date(m.fecha_rango + 'T00:00:00').toLocaleDateString('es-AR')})</span>` : '')}
+          ${dato('Ingreso', m.fecha_ingreso ? new Date(m.fecha_ingreso + 'T00:00:00').toLocaleDateString('es-AR') : '')}
+          ${dato('Cuenta vinculada', cuenta ? esc(cuenta.nombre) : '')}
+        </div>
+      </div>
+      <a class="btn chico" href="#/miembros">← Miembros</a>
+    </div>
+
+    <div class="herramientas" style="margin-top:18px">
+      <h3 style="margin:0;font-size:15px">Resumen</h3>
+      <span class="espacio"></span>
+      <select class="entrada" id="filtro-anio" style="max-width:200px;height:32px">
+        <option value="">Todo el historial</option>${anios.map(a => `<option value="${a}">${a}</option>`).join('')}
+      </select>
+    </div>
+    <div class="rejilla perfil-totales" id="perfil-totales"></div>
+
+    <h3 class="seccion-titulo">Actividades registradas en la página</h3>
+    <div class="envoltorio-tabla"><table class="datos tabla-actividades"><thead><tr>
+      <th>Fecha</th><th>Actividad</th><th>Rol</th><th>Con</th><th>Cargada por</th><th>Registrada el</th><th>Informe</th>
+    </tr></thead><tbody id="perfil-actividades"></tbody></table></div>
+
+    <h3 class="seccion-titulo">Desglose por mes</h3>
+    <div class="envoltorio-tabla"><table class="datos"><thead><tr>
+      <th>Mes / período</th><th>Registro</th><th>Detalle</th><th class="num">Total</th><th>Estado</th>
+    </tr></thead><tbody id="perfil-meses"></tbody></table></div>
+    <p class="ayuda">El desglose incluye el historial cargado desde los Excel, que no tiene link de informe. Las actividades cargadas desde
+      <a href="#/actividad">Registrar actividad</a> aparecen arriba con su link para poder chequearlas.</p>`;
+
+  const enFiltro = anio => !filtro.anio || anio === +filtro.anio;
+
+  function pintar() {
+    const hs = [...hojas.values()].filter(h => enFiltro(h.anio));
+    const acts = actividades.filter(a => !a.anulada && enFiltro(+a.fecha.slice(0, 4)));
+    // tarjetas
+    const tarjetas = TOTALES_PERFIL.map(t => {
+      let total = 0;
+      for (const h of hs) {
+        if (t.calc?.[h.categoria]) total += numero(h.calc[t.calc[h.categoria]]);
+        for (const c of t.cols?.[h.categoria] || []) total += numero(h.vals[c]);
+      }
+      return { titulo: t.titulo, total, ayuda: t.ayuda };
+    }).filter(t => t.total || t.titulo === 'Actividad total');
+    tarjetas.push({ titulo: 'Actividades con link', total: acts.length, ayuda: 'Cargadas desde Registrar actividad' });
+    $('#perfil-totales').innerHTML = tarjetas.map(t => `<div class="tarjeta" ${t.ayuda ? `title="${esc(t.ayuda)}"` : ''}>
+      <div class="dato-grande">${formatoNum(t.total)}</div><div class="dato-etiqueta">${esc(t.titulo)}</div></div>`).join('');
+
+    // actividades con link
+    const todas = actividades.filter(a => enFiltro(+a.fecha.slice(0, 4)));
+    $('#perfil-actividades').innerHTML = todas.length ? todas.map(a => {
+      const otros = a.participantes.filter(id => id !== m.id);
+      return `<tr class="${a.anulada ? 'fila-inactiva' : ''}">
+        <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
+        <td><strong>${esc(tipoNombre(a.tipo))}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}${a.anulada ? ' <span class="etiqueta">Anulada</span>' : ''}</td>
+        <td>${a.autor_miembro === m.id ? 'Organizó' : 'Participó'}</td>
+        <td style="white-space:normal;min-width:140px">${otros.length ? otros.map(id => `<a href="#/perfil?id=${id}">${esc(etiqueta(id))}</a>`).join(', ') : '<span class="tenue">—</span>'}</td>
+        <td>${a.autor_miembro ? `<a href="#/perfil?id=${a.autor_miembro}">${esc(etiqueta(a.autor_miembro))}</a>` : '—'}</td>
+        <td>${new Date(a.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</td>
+        <td><a class="btn chico" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir en Discord ↗</a></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="7" class="vacio">No tiene actividades cargadas desde la página${filtro.anio ? ' en ' + filtro.anio : ''}.</td></tr>`;
+
+    // desglose por mes
+    const orden = [...hs].sort((a, b) => (b.anio * 100 + b.mes) - (a.anio * 100 + a.mes) || (b.periodo > a.periodo ? 1 : -1) || a.categoria.localeCompare(b.categoria));
+    $('#perfil-meses').innerHTML = orden.length ? orden.map(h => {
+      const cfg = CATEGORIAS[h.categoria];
+      if (!cfg) return '';
+      const cuando = h.periodo ? `Período ${new Date(h.periodo + 'T00:00:00').toLocaleDateString('es-AR')}` : `${MESES[h.mes - 1]} ${h.anio}`;
+      const detalle = cfg.columnas.filter(c => c.tipo !== 'calculada' && h.vals[c.clave])
+        .map(c => c.tipo === 'numero' ? `${esc(c.nombre)} <strong>${esc(h.vals[c.clave])}</strong>` : `<span class="tenue">${esc(c.nombre)}: ${esc(h.vals[c.clave])}</span>`).join(' · ');
+      const colTotal = cfg.columnas.find(c => c.tipo === 'calculada' && c.numerica && !/lid/.test(c.clave));
+      const colEstado = cfg.columnas.find(c => c.tipo === 'calculada' && !c.numerica);
+      const enlace = h.periodo ? `#/${h.categoria}` : `#/${h.categoria}`;
+      return `<tr>
+        <td>${esc(cuando)}</td>
+        <td><a href="${enlace}" data-ir-hoja="${h.categoria}|${h.anio}|${h.mes}|${h.periodo}">${esc(cfg.titulo)}</a></td>
+        <td style="white-space:normal">${detalle || '<span class="tenue">—</span>'}</td>
+        <td class="num"><strong>${colTotal ? formatoNum(numero(h.calc[colTotal.clave])) : ''}</strong></td>
+        <td>${colEstado ? esc(h.calc[colEstado.clave]) : ''}</td></tr>`;
+    }).join('') : `<tr><td colspan="5" class="vacio">Sin registros${filtro.anio ? ' en ' + filtro.anio : ''}.</td></tr>`;
+  }
+
+  // Al tocar un registro del desglose, abre esa hoja en el mes/período correcto
+  $('#perfil-meses').onclick = ev => {
+    const a = ev.target.closest('[data-ir-hoja]'); if (!a) return;
+    const [cat, anio, mes, periodo] = a.dataset.irHoja.split('|');
+    if (periodo) { estado.periodos = estado.periodos || {}; estado.periodos[cat] = new Date(periodo + 'T00:00:00'); }
+    else { estado.anio = +anio; estado.mes = +mes; }
+  };
+  $('#filtro-anio').onchange = e => { filtro.anio = e.target.value; pintar(); };
+  estado.limpiezas.push(api.suscribir('actividades', () => {}));
+  pintar();
 }
 
 /* ============================================================ USUARIOS */

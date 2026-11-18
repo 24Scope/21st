@@ -118,6 +118,19 @@ function crearApiSupabase() {
         p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [] }));
     },
     async anularActividad(id) { return ok(await sb.rpc('anular_actividad', { p_id: id })); },
+    // ---- Perfil de un miembro
+    async listarRegistrosMiembro(miembroId) {
+      const filas = [];
+      for (let desde = 0; ; desde += 1000) {
+        const lote = ok(await sb.from('registros').select('categoria,anio,mes,periodo,columna,valor')
+          .eq('miembro_id', miembroId).range(desde, desde + 999));
+        filas.push(...lote);
+        if (lote.length < 1000) return filas;
+      }
+    },
+    async listarActividadesMiembro(miembroId) {
+      return ok(await sb.from('actividades').select('*').contains('participantes', [miembroId]).order('fecha', { ascending: false }));
+    },
     async vincularMiembro(perfilId, miembroId) {
       ok(await sb.from('perfiles').update({ miembro_id: miembroId || null }).eq('id', perfilId));
     },
@@ -253,6 +266,8 @@ function crearApiDemo() {
 
     async listarTiposActividad() { return []; },
     async listarActividades() { return []; },
+    async listarRegistrosMiembro(mid) { return leer().registros.filter(r => r.miembro_id == mid); },
+    async listarActividadesMiembro() { return []; },
     async registrarActividad() { throw new Error('El registro de actividades funciona solo con Supabase conectado.'); },
     async anularActividad() { throw new Error('El registro de actividades funciona solo con Supabase conectado.'); },
     async vincularMiembro(uid, miembroId) {

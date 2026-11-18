@@ -319,3 +319,16 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .vista-previa ul { margin: 0; padding-left: 18px; line-height: 1.6; }
 .tabla-actividades td { vertical-align: top; }
 @media (max-width: 1100px) { .actividad-grid { grid-template-columns: 1fr; } }
+
+/* ------------------------------------------------------------ perfil */
+a.link-perfil { color: inherit; text-decoration: none; }
+a.link-perfil:hover { color: var(--acento); text-decoration: underline; }
+.perfil-cabecera { display: flex; gap: 18px; align-items: flex-start; }
+.perfil-avatar { width: 64px; height: 64px; border-radius: 16px; flex: none; display: grid; place-items: center; font-size: 28px; font-weight: 700;
+  color: #fff; background: linear-gradient(135deg, #d9a441, #8f6418); }
+.perfil-principal { flex: 1; min-width: 0; }
+.perfil-nombre { font-size: 22px; font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.perfil-datos { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px 20px; font-size: 13.5px; }
+.perfil-totales { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.perfil-totales .tarjeta { padding: 14px 16px; }
+@media (max-width: 860px) { .perfil-cabecera { flex-wrap: wrap; } .perfil-avatar { width: 48px; height: 48px; font-size: 22px; } }

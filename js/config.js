@@ -208,6 +208,7 @@ const SECCIONES = [
   { id: 'soldados',     titulo: 'Actividad Soldados (7 días)',       icono: '•', grupo: 'Registros de actividad', rangoMinimo: 1 },
   { id: 'reglamento',   titulo: 'Reglamento del calendario',         icono: '§', grupo: 'Calendario',             rangoMinimo: 1 },
   { id: 'calendario',   titulo: 'Calendario',                        icono: '▤', grupo: 'Calendario',             rangoMinimo: 1 },
+  { id: 'perfil',       titulo: 'Mi perfil',                         icono: '◉', grupo: 'Legión',                 rangoMinimo: 1 },
   { id: 'miembros',     titulo: 'Miembros de la legión',             icono: '☰', grupo: 'Legión',                 rangoMinimo: 1 },
   { id: 'usuarios',     titulo: 'Usuarios y rangos',                 icono: '⚙', grupo: 'Administración',         rangoMinimo: 2 },
 ];
