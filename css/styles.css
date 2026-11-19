@@ -382,6 +382,30 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .chip-yo strong { color: var(--texto); }
 .fila-campos.tres { grid-template-columns: 2fr 1.2fr 1fr; }
 .historial-actividad { min-width: 0; }
+/* Informar inactividad */
+.opciones-tarjeta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.opcion-tarjeta { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--borde-fuerte);
+  border-radius: 8px; cursor: pointer; background: var(--superficie); }
+.opcion-tarjeta:has(input:checked) { border-color: var(--acento); background: var(--acento-suave); }
+.opcion-tarjeta input { margin: 3px 0 0; accent-color: var(--acento); width: 16px; height: 16px; min-width: 0; padding: 0; flex: none; box-shadow: none; }
+.opcion-tarjeta span { display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+.opcion-tarjeta small { color: var(--texto-3); font-size: 12px; }
+.chips-duracion { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-duracion { border: 1px solid var(--borde-fuerte); background: var(--superficie); color: var(--texto-2); border-radius: 999px;
+  padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.chip-duracion:hover { background: var(--superficie-2); color: var(--texto); }
+.chip-duracion.activo { border-color: var(--acento); background: var(--acento-suave); color: var(--acento-texto); font-weight: 600; }
+.estado-inact.en-curso { background: var(--acento-suave); color: var(--acento-texto); }
+.estado-inact.programada { background: var(--superficie-2); color: var(--texto); border: 1px dashed var(--borde-fuerte); }
+.insignia-inact { border: 1px solid var(--borde-fuerte); background: var(--superficie-2); color: var(--texto-2); border-radius: 999px;
+  font: inherit; font-size: 11px; font-weight: 600; padding: 1px 7px; margin-left: 6px; cursor: pointer; vertical-align: 1px; white-space: nowrap; }
+.insignia-inact.total { border-color: var(--peligro); color: var(--peligro); }
+.insignia-inact:hover { background: var(--superficie); text-decoration: underline; }
+.detalle-inact { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--borde); }
+.detalle-inact-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 15px; }
+.detalle-inact-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 12px; font-size: 13.5px; }
+.detalle-inact-motivo { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 12px; line-height: 1.5; }
+@media (max-width: 560px) { .opciones-tarjeta { grid-template-columns: 1fr; } }
 .aviso-act { font-size: 13px; color: var(--peligro); margin-bottom: 10px; }
 .aviso-act:empty { display: none; }
 .btn-ancho { width: 100%; justify-content: center; height: 40px; font-size: 14px; }

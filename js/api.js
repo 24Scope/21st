@@ -118,6 +118,14 @@ function crearApiSupabase() {
         p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [] }));
     },
     async anularActividad(id) { return ok(await sb.rpc('anular_actividad', { p_id: id })); },
+    // ---- Avisos de inactividad
+    async listarInactividades() { return ok(await sb.from('inactividades').select('*').order('desde', { ascending: false })); },
+    async listarInactividadesEntre(desde, hasta) {
+      return ok(await sb.from('inactividades').select('*').lte('desde', hasta).gte('hasta', desde).order('desde'));
+    },
+    async crearInactividad(x) { return ok(await sb.from('inactividades').insert(x).select().single()); },
+    async cancelarInactividad(id) { return ok(await sb.from('inactividades').update({ cancelada: true }).eq('id', id).select().single()); },
+    async borrarInactividad(id) { ok(await sb.from('inactividades').delete().eq('id', id)); },
     // ---- Foro de administración (la base solo deja verlo y escribir a administradores)
     async listarTemasForo() {
       const filas = ok(await sb.from('foro_temas').select('*, foro_comentarios(count)'));
@@ -286,6 +294,20 @@ function crearApiDemo() {
 
     async listarTiposActividad() { return []; },
     async listarActividades() { return []; },
+    async listarInactividades() { return (leer().inactividades || []).slice(); },
+    async listarInactividadesEntre(d, h) { return (leer().inactividades || []).filter(x => x.desde <= h && x.hasta >= d); },
+    async crearInactividad(x) {
+      const db = leer(); db.inactividades = db.inactividades || [];
+      const n = { ...x, id: id(db), autor_perfil: usuarioActual(db).id, creado_en: new Date().toISOString(), cancelada: false, cancelada_en: null };
+      db.inactividades.push(n); escribir(db); return n;
+    },
+    async cancelarInactividad(iid) {
+      const db = leer(); const x = db.inactividades.find(y => y.id === iid), hoy = new Date().toISOString().slice(0, 10);
+      Object.assign(x, { cancelada: true, cancelada_en: new Date().toISOString() });
+      if (x.desde <= hoy && x.hasta >= hoy) x.hasta = hoy;
+      escribir(db); return x;
+    },
+    async borrarInactividad(iid) { const db = leer(); exigirAdmin(db); db.inactividades = (db.inactividades || []).filter(x => x.id !== iid); escribir(db); },
     async listarTemasForo() {
       const db = leer(); exigirAdmin(db);
       return (db.foroTemas || []).map(t => ({ ...t, n_comentarios: (db.foroComentarios || []).filter(c => c.tema_id === t.id).length }));

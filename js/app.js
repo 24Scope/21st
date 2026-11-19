@@ -159,7 +159,7 @@ function navegar() {
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
   cont.scrollTop = 0;
 
-  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo };
+  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad };
   const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
   Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
 }
@@ -330,7 +330,17 @@ async function vistaRegistro(cat) {
       $$('.mes', cont).forEach(b => b.classList.toggle('activo', +b.dataset.mes === estado.mes));
     }
     $('#hoja-cont').innerHTML = '<div class="vacio">Cargando…</div>';
-    const [miembros, regs] = await Promise.all([api.listarMiembros(), api.listarRegistros(cat, hoja.clave)]);
+    const k = hoja.clave;
+    const rango = config.periodo ? [k.periodo, sumarDias(k.periodo, config.periodo.dias - 1)]
+                                 : [`${k.anio}-${pad(k.mes)}-01`, fechaISO(new Date(k.anio, k.mes, 0))];
+    const [miembros, regs, avisos] = await Promise.all([api.listarMiembros(), api.listarRegistros(cat, k),
+      api.listarInactividadesEntre(...rango).catch(() => [])]);
+    if (JSON.stringify(k) !== JSON.stringify(hoja.clave)) return;   // se cambió de hoja mientras cargaba
+    hoja.inact = new Map();
+    for (const x of avisos.filter(inactividadCuenta)) {
+      if (!hoja.inact.has(x.miembro_id)) hoja.inact.set(x.miembro_id, []);
+      hoja.inact.get(x.miembro_id).push(x);
+    }
     hoja.celdas = new Map(regs.map(r => [clave(r.miembro_id, r.columna), r]));
     // "_plantel" guarda quién figuraba en esa hoja (según los Excel) y con qué rango/élite: "RANGO/ELITE".
     // Si la hoja tiene plantel se muestra solo esa gente, con su rango de ese momento; si no, los miembros activos actuales.
@@ -366,7 +376,7 @@ async function vistaRegistro(cat) {
       </tr></thead><tbody>`;
     hoja.filas.forEach((m, f) => {
       html += `<tr class="${m.activo ? '' : 'inactivo'}"><td class="fijo col-n">${f + 1}</td>
-        <td class="fijo col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a></td><td class="col-grado">${esc(m.grado)}</td>
+        <td class="fijo col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${insigniaInactividad(hoja.inact?.get(m.id), m.nombre)}</td><td class="col-grado">${esc(m.grado)}</td>
         ${fijas.map(x => `<td class="col-grado">${esc(valorFijo(m, x))}</td>`).join('')}`;
       cols.forEach((c, ci) => { html += `<td data-f="${f}" data-c="${ci}"></td>`; });
       html += `</tr>`;
@@ -391,7 +401,7 @@ async function vistaRegistro(cat) {
           ${cols.map(c => `<th class="${numCol(c) ? 'num' : ''}">${esc(c.nombre)}</th>`).join('')}
         </tr></thead><tbody>
         ${indices.length ? indices.map(f => { const m = hoja.filas[f];
-          return `<tr class="${m.activo ? '' : 'inactivo'}"><td class="col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a></td>
+          return `<tr class="${m.activo ? '' : 'inactivo'}"><td class="col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${insigniaInactividad(hoja.inact?.get(m.id), m.nombre)}</td>
             <td class="col-grado" title="${esc(ELITES[m[campo]] || '')}">${esc(config.secciones.columna ? m[campo] : m.grado)}</td>${cols.map((c, ci) => `<td data-f="${f}" data-c="${ci}"></td>`).join('')}</tr>`; }).join('')
           : `<tr><td colspan="${cols.length + 2}" class="vacio-chico">Sin miembros</td></tr>`}
         </tbody><tfoot><tr><td class="col-nombre">Total</td><td></td>
@@ -621,6 +631,10 @@ async function vistaRegistro(cat) {
 
   // Cambios de otras personas en tiempo real
   let espera;
+  estado.limpiezas.push(api.suscribir('inactividades', () => {
+    clearTimeout(espera);
+    espera = setTimeout(() => { if (!hoja.editando) cargar().catch(fallo); }, 400);
+  }));
   estado.limpiezas.push(api.suscribir('registros', p => {
     const n = p?.new || p?.old, k = hoja.clave;
     if (n && n.categoria && k && (n.categoria !== cat || n.anio !== k.anio || n.mes !== k.mes || (n.periodo || '') !== k.periodo)) return;
@@ -1680,6 +1694,232 @@ async function vistaForo(cont) {
   pintarLista();
   abrirTema(actual && temas.some(t => t.id === actual) ? actual : (temas.length ? ordenar()[0].id : null));
 }
+
+/* ============================================================ INFORMAR INACTIVIDAD */
+const TIPOS_INACTIVIDAD = {
+  total:   { nombre: 'Inactividad total',   ayuda: 'No vas a poder participar de nada.' },
+  parcial: { nombre: 'Inactividad parcial', ayuda: 'Vas a estar con menos actividad (semi-activo).' },
+};
+const DURACIONES_INACTIVIDAD = [
+  { dias: 3, txt: '3 días' }, { dias: 7, txt: '1 semana' }, { dias: 14, txt: '2 semanas' },
+  { dias: 30, txt: '1 mes' }, { dias: 60, txt: '2 meses' }, { dias: 0, txt: 'Otra' },
+];
+const MAX_DIAS_INACTIVIDAD = 121;   // igual que en la base (hasta - desde <= 120)
+const sumarDias = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return fechaISO(d); };
+const diasEntre = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 864e5) + 1;
+const fechaAR = iso => new Date(iso + 'T00:00:00').toLocaleDateString('es-AR');
+function estadoInactividad(x) {
+  const hoy = fechaISO(new Date());
+  if (x.cancelada) return { txt: 'Cancelada', clase: '' };
+  if (hoy < x.desde) return { txt: 'Programada', clase: 'programada' };
+  if (hoy > x.hasta) return { txt: 'Finalizada', clase: '' };
+  return { txt: 'En curso', clase: 'en-curso' };
+}
+
+async function vistaInactividad(cont) {
+  let [lista, miembros] = await Promise.all([api.listarInactividades(), api.listarMiembros()]);
+  const porId = new Map(miembros.map(m => [m.id, m]));
+  const yo = porId.get(estado.perfil.miembro_id);
+  const veTodo = esAdmin() || yo?.categoria === 'comandantes';
+  const etiqueta = id => { const m = porId.get(id); return m ? `${m.grado} ${m.nombre}` : `#${id}`; };
+  const filtro = { ver: 'activas' };
+
+  cont.innerHTML = `
+    <div class="actividad-centro">
+      <section class="tarjeta panel-actividad" id="panel-inact"></section>
+      <section>
+        <h3 class="seccion-titulo" style="margin-top:0">Mis avisos de inactividad</h3>
+        <div class="envoltorio-tabla"><table class="datos"><thead><tr>
+          <th>Estado</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Motivo</th><th>Aviso</th><th></th>
+        </tr></thead><tbody id="mis-inact"></tbody></table></div>
+      </section>
+      ${veTodo ? `<section>
+        <div class="herramientas">
+          <h3 style="margin:0;font-size:15px">Inactividades de la legión</h3>
+          <span class="espacio"></span>
+          <select class="entrada" id="ver-inact" style="max-width:200px;height:32px">
+            <option value="activas">En curso y programadas</option><option value="todas">Todas</option>
+          </select>
+        </div>
+        <div class="envoltorio-tabla"><table class="datos"><thead><tr>
+          <th>Estado</th><th>Miembro</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Motivo</th><th>Aviso</th><th></th>
+        </tr></thead><tbody id="todas-inact"></tbody></table></div>
+      </section>` : ''}
+    </div>`;
+
+  /* ---------- formulario */
+  function pintarFormulario() {
+    const panel = $('#panel-inact');
+    if (!yo) {
+      panel.innerHTML = `<h3>Informar inactividad</h3>
+        <p style="color:var(--texto-2);line-height:1.5;margin:0">Tu cuenta todavía no está vinculada a un miembro de la legión, así que no podés informar inactividad.
+        Pedile a un administrador que la vincule desde <strong>Usuarios y rangos</strong>.</p>`;
+      return;
+    }
+    const hoy = fechaISO(new Date());
+    panel.innerHTML = `
+      <div class="panel-actividad-cab">
+        <h3>Informar inactividad</h3>
+        <span class="chip-yo">Informás como <strong>${esc(yo.grado)} ${esc(yo.nombre)}</strong></span>
+      </div>
+      <form id="form-inact">
+        <div class="campo"><span>Tipo de inactividad</span>
+          <div class="opciones-tarjeta">${Object.entries(TIPOS_INACTIVIDAD).map(([k, t], i) => `
+            <label class="opcion-tarjeta"><input type="radio" name="tipo" value="${k}" ${i === 0 ? 'checked' : ''}>
+              <span><strong>${esc(t.nombre)}</strong><small>${esc(t.ayuda)}</small></span></label>`).join('')}</div>
+        </div>
+        <div class="campo"><span>Duración</span>
+          <div class="chips-duracion" id="chips-duracion">${DURACIONES_INACTIVIDAD.map((d, i) =>
+            `<button type="button" class="chip-duracion ${i === 1 ? 'activo' : ''}" data-dias="${d.dias}">${d.txt}</button>`).join('')}</div>
+        </div>
+        <div class="fila-campos">
+          <label class="campo"><span>Desde</span><input name="desde" type="date" required min="${sumarDias(hoy, -7)}" value="${hoy}"></label>
+          <label class="campo"><span>Hasta</span><input name="hasta" type="date" required value="${sumarDias(hoy, 6)}"></label>
+        </div>
+        <label class="campo"><span>Motivo</span>
+          <textarea name="motivo" required minlength="5" maxlength="1000" style="min-height:80px" placeholder="Contá brevemente por qué vas a estar inactivo…"></textarea></label>
+        <label class="campo"><span>Link del aviso en Discord</span>
+          <input name="link" type="url" required class="mono" placeholder="https://discord.com/channels/…">
+          <small class="tenue" style="margin-top:4px">Primero publicá el aviso de inactividad en Discord y pegá acá el link del mensaje.</small></label>
+        <div class="vista-previa" id="resumen-inact"></div>
+        <button class="btn primario btn-ancho" id="btn-enviar-inact">Enviar aviso de inactividad</button>
+      </form>`;
+
+    const f = $('#form-inact');
+    let dias = 7;
+    const resumen = () => {
+      const d = f.desde.value, h = f.hasta.value;
+      if (!d || !h) { $('#resumen-inact').innerHTML = ''; return; }
+      if (h < d) { $('#resumen-inact').innerHTML = '<span style="color:var(--peligro)">La fecha "Hasta" no puede ser anterior a "Desde".</span>'; return; }
+      const n = diasEntre(d, h);
+      $('#resumen-inact').innerHTML = n > MAX_DIAS_INACTIVIDAD
+        ? `<span style="color:var(--peligro)">El máximo es de ${MAX_DIAS_INACTIVIDAD} días. Si necesitás más, avisá a un comandante.</span>`
+        : `<strong>${esc(TIPOS_INACTIVIDAD[f.tipo.value].nombre)}</strong> del ${fechaAR(d)} al ${fechaAR(h)} · ${n} día${n === 1 ? '' : 's'}`;
+    };
+    const marcarChip = d => $$('.chip-duracion', f).forEach(b => b.classList.toggle('activo', +b.dataset.dias === d));
+    const aplicarDuracion = () => { if (dias && f.desde.value) f.hasta.value = sumarDias(f.desde.value, dias - 1); f.hasta.min = f.desde.value; resumen(); };
+    $('#chips-duracion').onclick = ev => {
+      const b = ev.target.closest('[data-dias]'); if (!b) return;
+      dias = +b.dataset.dias; marcarChip(dias);
+      if (dias) aplicarDuracion(); else { f.hasta.focus(); f.hasta.showPicker?.(); }
+    };
+    f.desde.onchange = aplicarDuracion;
+    f.hasta.onchange = () => {   // elegir la fecha a mano pasa a "Otra", salvo que coincida con una duración
+      const n = diasEntre(f.desde.value, f.hasta.value);
+      dias = DURACIONES_INACTIVIDAD.some(x => x.dias === n) ? n : 0; marcarChip(dias); resumen();
+    };
+    $$('input[name="tipo"]', f).forEach(r => r.onchange = resumen);
+    aplicarDuracion();
+
+    f.onsubmit = async ev => {
+      ev.preventDefault();
+      const link = f.link.value.trim();
+      if (!/^https:\/\/([a-z]+\.)?(discord\.com|discordapp\.com)\//i.test(link)) return aviso('El link tiene que ser un enlace de Discord (https://discord.com/…).', 'error');
+      if (f.hasta.value < f.desde.value) return aviso('La fecha "Hasta" no puede ser anterior a "Desde".', 'error');
+      if (diasEntre(f.desde.value, f.hasta.value) > MAX_DIAS_INACTIVIDAD) return aviso(`El máximo es de ${MAX_DIAS_INACTIVIDAD} días.`, 'error');
+      const btn = $('#btn-enviar-inact'); btn.disabled = true;
+      try {
+        const n = await api.crearInactividad({ miembro_id: yo.id, tipo: f.tipo.value, motivo: f.motivo.value.trim(), link,
+          desde: f.desde.value, hasta: f.hasta.value });
+        lista.unshift(n);
+        aviso('Aviso de inactividad enviado.');
+        pintarFormulario(); pintarListas();
+      } catch (e) { fallo(e); btn.disabled = false; }
+    };
+  }
+
+  /* ---------- listados */
+  const ordenar = l => l.sort((a, b) => (a.desde < b.desde ? 1 : a.desde > b.desde ? -1 : b.id - a.id));
+  function fila(x, conMiembro) {
+    const e = estadoInactividad(x);
+    const puedeCancelar = !x.cancelada && e.txt !== 'Finalizada' && (x.autor_perfil === estado.perfil.id || veTodo);
+    return `<tr class="${x.cancelada || e.txt === 'Finalizada' ? 'fila-inactiva' : ''}">
+      <td><span class="etiqueta estado-inact ${e.clase}">${e.txt}</span></td>
+      ${conMiembro ? `<td><a class="link-perfil" href="#/perfil?id=${x.miembro_id}">${esc(etiqueta(x.miembro_id))}</a></td>` : ''}
+      <td>${esc(TIPOS_INACTIVIDAD[x.tipo]?.nombre || x.tipo)}</td>
+      <td>${fechaAR(x.desde)}</td>
+      <td>${fechaAR(x.hasta)}<span class="sub">${diasEntre(x.desde, x.hasta)} días</span></td>
+      <td style="white-space:normal;min-width:180px;max-width:360px">${esc(x.motivo)}</td>
+      <td><a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">Abrir ↗</a></td>
+      <td class="acciones">${puedeCancelar ? `<button class="btn chico" data-cancelar-inact="${x.id}">${e.txt === 'En curso' ? 'Terminar hoy' : 'Cancelar'}</button>` : ''}
+        ${esAdmin() && conMiembro ? `<button class="btn chico peligro" data-borrar-inact="${x.id}">Borrar</button>` : ''}</td>
+    </tr>`;
+  }
+  function pintarListas() {
+    ordenar(lista);
+    const mias = lista.filter(x => x.autor_perfil === estado.perfil.id);
+    $('#mis-inact').innerHTML = mias.length ? mias.map(x => fila(x, false)).join('')
+      : '<tr><td colspan="7" class="vacio">Todavía no informaste ninguna inactividad.</td></tr>';
+    if (!veTodo) return;
+    const todas = lista.filter(x => filtro.ver === 'todas' || (!x.cancelada && x.hasta >= fechaISO(new Date())));
+    $('#todas-inact').innerHTML = todas.length ? todas.map(x => fila(x, true)).join('')
+      : `<tr><td colspan="8" class="vacio">${filtro.ver === 'todas' ? 'Nadie informó inactividad todavía.' : 'No hay inactividades en curso ni programadas.'}</td></tr>`;
+  }
+
+  cont.onclick = async ev => {
+    const c = ev.target.closest('[data-cancelar-inact]'), b = ev.target.closest('[data-borrar-inact]');
+    if (!c && !b) return;
+    const x = lista.find(y => y.id == (c || b).dataset[c ? 'cancelarInact' : 'borrarInact']);
+    try {
+      if (c) {
+        const enCurso = estadoInactividad(x).txt === 'En curso';
+        if (!await confirmar(enCurso ? 'Terminar inactividad' : 'Cancelar inactividad',
+          enCurso ? `La inactividad de ${etiqueta(x.miembro_id)} va a terminar hoy.` : `Se cancela la inactividad del ${fechaAR(x.desde)} al ${fechaAR(x.hasta)}.`,
+          enCurso ? 'Terminar hoy' : 'Cancelar inactividad')) return;
+        Object.assign(x, await api.cancelarInactividad(x.id)); aviso(enCurso ? 'Inactividad terminada.' : 'Inactividad cancelada.');
+      } else {
+        if (!await confirmar('Borrar aviso', `¿Borrar el aviso de inactividad de ${etiqueta(x.miembro_id)}? No se puede deshacer.`, 'Borrar')) return;
+        await api.borrarInactividad(x.id); lista = lista.filter(y => y !== x); aviso('Aviso borrado.');
+      }
+      pintarListas();
+    } catch (e) { fallo(e); }
+  };
+  if (veTodo) $('#ver-inact').onchange = e => { filtro.ver = e.target.value; pintarListas(); };
+  estado.limpiezas.push(api.suscribir('inactividades', async () => {
+    try { lista = await api.listarInactividades(); pintarListas(); } catch {}
+  }));
+  pintarFormulario();
+  pintarListas();
+}
+
+/* ---------- marca de inactividad en las tablas de actividad */
+const INACT_VISTAS = new Map();   // id -> aviso, para abrir el detalle desde cualquier tabla
+// Un aviso cancelado antes de empezar no cuenta; si se terminó antes, cuenta hasta el día en que terminó
+const inactividadCuenta = x => !x.cancelada || (!!x.cancelada_en && x.hasta >= x.desde && fechaISO(new Date(x.cancelada_en)) >= x.desde);
+function insigniaInactividad(avisos, nombre) {
+  if (!avisos?.length) return '';
+  avisos.forEach(x => INACT_VISTAS.set(x.id, x));
+  const total = avisos.some(x => x.tipo === 'total');
+  const rangos = avisos.map(x => `${fechaAR(x.desde)} al ${fechaAR(x.hasta)}`).join(' y ');
+  return ` <button type="button" class="insignia-inact ${total ? 'total' : ''}" data-ver-inact="${avisos.map(x => x.id).join(',')}"
+    data-nombre="${esc(nombre)}" title="Declaró inactividad del ${rangos}. Clic para ver el aviso.">☾ ${total ? 'Inactivo' : 'Parcial'}</button>`;
+}
+function verInactividad(avisos, nombre) {
+  abrirModal(`Inactividad · ${nombre}`, `${avisos.map(x => {
+    const e = estadoInactividad(x);
+    return `<div class="detalle-inact">
+      <div class="detalle-inact-cab"><strong>${esc(TIPOS_INACTIVIDAD[x.tipo]?.nombre || x.tipo)}</strong>
+        <span class="etiqueta estado-inact ${e.clase}">${e.txt}</span></div>
+      <div class="detalle-inact-datos">
+        <div><span class="dato-etiqueta">Desde</span><div>${fechaAR(x.desde)}</div></div>
+        <div><span class="dato-etiqueta">Hasta</span><div>${fechaAR(x.hasta)}</div></div>
+        <div><span class="dato-etiqueta">Duración</span><div>${diasEntre(x.desde, x.hasta)} días</div></div>
+        <div><span class="dato-etiqueta">Informada el</span><div>${new Date(x.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</div></div>
+      </div>
+      <span class="dato-etiqueta">Motivo</span>
+      <p class="detalle-inact-motivo">${esc(x.motivo)}</p>
+      <a class="btn chico" href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">Ver aviso en Discord ↗</a>
+    </div>`;
+  }).join('')}
+    <div class="modal-pie"><a class="btn" href="#/inactividad">Ir a Informar inactividad</a><button type="button" class="btn primario" data-cerrar-inact>Cerrar</button></div>`,
+  c => { $('[data-cerrar-inact]', c).onclick = cerrarModal; $('a[href="#/inactividad"]', c).onclick = () => cerrarModal(); });
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest?.('[data-ver-inact]'); if (!b) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const avisos = b.dataset.verInact.split(',').map(id => INACT_VISTAS.get(+id)).filter(Boolean);
+  if (avisos.length) verInactividad(avisos, b.dataset.nombre);
+});
 
 /* ============================================================ USUARIOS */
 async function vistaUsuarios(cont) {

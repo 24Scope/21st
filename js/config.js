@@ -205,6 +205,7 @@ const TIPOS_EVENTO = [
 const SECCIONES = [
   { id: 'inicio',       titulo: 'Inicio',                            icono: '▦', grupo: '',                       rangoMinimo: 1 },
   { id: 'actividad',    titulo: 'Registrar actividad',               icono: '✚', grupo: 'Registros de actividad', rangoMinimo: 1 },
+  { id: 'inactividad',  titulo: 'Informar inactividad',              icono: '☾', grupo: 'Registros de actividad', rangoMinimo: 1 },
   { id: 'oficiales',    titulo: 'Actividad Oficiales y Comandantes', icono: '★', grupo: 'Registros de actividad', rangoMinimo: 1 },
   { id: 'suboficiales', titulo: 'Actividad Suboficiales',            icono: '◆', grupo: 'Registros de actividad', rangoMinimo: 1 },
   { id: 'elites',       titulo: 'Actividad Élites',                  icono: '▲', grupo: 'Registros de actividad', rangoMinimo: 1 },
