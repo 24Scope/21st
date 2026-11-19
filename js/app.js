@@ -1740,8 +1740,8 @@ async function vistaForo(cont) {
 
 /* ============================================================ INFORMAR INACTIVIDAD */
 const TIPOS_INACTIVIDAD = {
-  total:   { nombre: 'Inactividad total',   ayuda: 'No vas a poder participar de nada.' },
-  parcial: { nombre: 'Inactividad parcial', ayuda: 'Vas a estar con menos actividad (semi-activo).' },
+  total:   { nombre: 'Inactividad',         ayuda: 'No vas a poder participar de nada.' },
+  parcial: { nombre: 'Reducción de actividad', ayuda: 'Vas a estar con menos actividad (semi-activo).' },
 };
 const DURACIONES_INACTIVIDAD = [
   { dias: 3, txt: '3 días' }, { dias: 7, txt: '1 semana' }, { dias: 14, txt: '2 semanas' },
@@ -1935,7 +1935,7 @@ function insigniaInactividad(avisos, nombre) {
   const total = avisos.some(x => x.tipo === 'total');
   const rangos = avisos.map(x => `${fechaAR(x.desde)} al ${fechaAR(x.hasta)}`).join(' y ');
   return ` <button type="button" class="insignia-inact ${total ? 'total' : ''}" data-ver-inact="${avisos.map(x => x.id).join(',')}"
-    data-nombre="${esc(nombre)}" title="Declaró inactividad del ${rangos}. Clic para ver el aviso.">☾ ${total ? 'Inactivo' : 'Parcial'}</button>`;
+    data-nombre="${esc(nombre)}" title="Declaró ${total ? 'inactividad' : 'reducción de actividad'} del ${rangos}. Clic para ver el aviso.">☾ ${total ? 'Inactivo' : 'Reducción'}</button>`;
 }
 function verInactividad(avisos, nombre) {
   abrirModal(`Inactividad · ${nombre}`, `${avisos.map(x => {
