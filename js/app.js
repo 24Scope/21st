@@ -1090,7 +1090,8 @@ async function vistaActividad(cont) {
   let [tipos, miembros, actividades] = await Promise.all([api.listarTiposActividad(), api.listarMiembros(), api.listarActividades()]);
   const porId = new Map(miembros.map(m => [m.id, m]));
   const yo = porId.get(estado.perfil.miembro_id);
-  const candidatos = ordenarMiembros(miembros.filter(m => m.activo && CATS_FORMULARIO.includes(m.categoria) && m.id !== yo?.id));
+  // Se puede marcar a miembros activos de Sargento en adelante y a élites de cualquier rango (igual que en la base)
+  const candidatos = ordenarMiembros(miembros.filter(m => m.activo && (CATS_FORMULARIO.includes(m.categoria) || !!ELITES[m.elite]) && m.id !== yo?.id));
   const filtro = { ver: 'todas' };
   const hoyISO = fechaISO(new Date());
   const tipoDe = id => tipos.find(t => t.id === id);
@@ -1135,7 +1136,7 @@ async function vistaActividad(cont) {
           <label class="campo"><span>Fecha</span><input name="fecha" type="date" required max="${fechaISO(new Date())}" value="${fechaISO(new Date())}"></label>
           <label class="campo"><span>Hora</span><input name="hora" type="time" value="${pad(new Date().getHours())}:${pad(new Date().getMinutes())}"></label>
         </div>
-        <div class="campo"><span>¿Con quién la hiciste? <small class="tenue">(opcional)</small></span>
+        <div class="campo"><span>¿Con quién la hiciste? <small class="tenue" id="limite-acomp">(opcional)</small></span>
           <div class="selector-acomp" id="selector-acomp">
             <div class="chips-acomp" id="chips-acomp"></div>
             <input id="buscar-acomp" placeholder="Escribí un nombre, rango o Discord…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="resultados-acomp">
@@ -1146,6 +1147,7 @@ async function vistaActividad(cont) {
           <input name="link" type="url" required placeholder="https://discord.com/channels/…" class="mono"></label>
         <label class="campo"><span>Notas <small class="tenue">(opcional)</small></span><textarea name="notas" maxlength="500" style="min-height:56px"></textarea></label>
         <div class="vista-previa" id="vista-previa"></div>
+        <div class="aviso-act" id="aviso-act"></div>
         <button class="btn primario btn-ancho" id="btn-enviar-act">Enviar actividad</button>
       </form>`;
 
@@ -1153,6 +1155,10 @@ async function vistaActividad(cont) {
     const seleccion = [];               // ids de los acompañantes, en el orden en que se eligieron
     let marcado = 0;                    // resultado resaltado con el teclado
     const elegidos = () => [...seleccion];
+    // Máximo de participantes contando a quien carga: 2, o 3 en Capacitación élite (donde todos tienen que ser élites)
+    const esCapElite = () => f.tipo.value === 'ent_esp';
+    const maxAcomp = () => (esCapElite() ? 3 : 2) - 1;
+    const elegible = m => !esCapElite() || !!ELITES[m.elite];
     const buscar = $('#buscar-acomp'), resultados = $('#resultados-acomp');
     const textoBusqueda = m => `${m.grado} ${m.nombre} ${m.discord_id || ''} ${m.nombre_iconico || ''} ${m.elite || ''}`.toLowerCase();
 
@@ -1164,12 +1170,16 @@ async function vistaActividad(cont) {
     }
     function coincidencias() {
       const q = buscar.value.trim().toLowerCase();
-      return candidatos.filter(m => !seleccion.includes(m.id) && (!q || q.split(/\s+/).every(p => textoBusqueda(m).includes(p))));
+      return candidatos.filter(m => !seleccion.includes(m.id) && elegible(m) && (!q || q.split(/\s+/).every(p => textoBusqueda(m).includes(p))));
     }
     function pintarResultados() {
       const lista = coincidencias();
       marcado = Math.min(marcado, Math.max(lista.length - 1, 0));
       resultados.hidden = false; buscar.setAttribute('aria-expanded', 'true');
+      if (seleccion.length >= maxAcomp()) {
+        resultados.innerHTML = `<div class="res-vacio">Ya marcaste el máximo para esta actividad (${maxAcomp() + 1} participantes contándote a vos).</div>`;
+        return;
+      }
       resultados.innerHTML = lista.length ? lista.map((m, i) => `
         <div class="res-acomp ${i === marcado ? 'marcado' : ''}" role="option" data-elegir="${m.id}">
           <span class="res-rango">${esc(m.grado)}</span><span class="res-nombre">${esc(m.nombre)}</span>
@@ -1180,6 +1190,7 @@ async function vistaActividad(cont) {
     }
     function cerrarResultados() { resultados.hidden = true; buscar.setAttribute('aria-expanded', 'false'); }
     function elegir(id) {
+      if (seleccion.length >= maxAcomp()) return;
       if (!seleccion.includes(id)) seleccion.push(id);
       buscar.value = ''; marcado = 0;
       pintarChips(); pintarResultados(); actualizar(); buscar.focus();
@@ -1207,6 +1218,12 @@ async function vistaActividad(cont) {
 
     const actualizar = () => {
       const ids = elegidos();
+      const max = maxAcomp();
+      $('#limite-acomp').textContent = esCapElite()
+        ? `(opcional · hasta ${max} élites más)` : `(opcional · hasta ${max} persona${max === 1 ? '' : 's'} más)`;
+      const yoNoElite = esCapElite() && !ELITES[yo.elite];
+      $('#btn-enviar-act').disabled = yoNoElite;
+      $('#aviso-act').innerHTML = yoNoElite ? 'Para registrar una Capacitación élite tenés que tener una élite asignada en el sistema.' : '';
       const t = tipoDe(f.tipo.value);
       if (!t) { $('#vista-previa').innerHTML = ''; return; }
       const [anio, mes] = (f.fecha.value || hoyISO).split('-').map(Number);
@@ -1218,7 +1235,16 @@ async function vistaActividad(cont) {
       });
       $('#vista-previa').innerHTML = `<div class="dato-etiqueta" style="margin-bottom:4px">Se va a sumar en ${MESES[mes - 1]} ${anio}:</div><ul>${lineas.join('')}</ul>`;
     };
-    f.tipo.onchange = actualizar; f.fecha.onchange = actualizar;
+    f.tipo.onchange = () => {
+      // Al cambiar de tipo se quitan los que ya no corresponden (no élites o por encima del máximo)
+      const antes = seleccion.length;
+      const quedan = seleccion.filter(id => elegible(porId.get(id))).slice(0, maxAcomp());
+      seleccion.splice(0, seleccion.length, ...quedan);
+      if (seleccion.length < antes) aviso(esCapElite() ? 'Se quitaron los acompañantes que no son élites o que superan el máximo.' : 'Se quitaron acompañantes que superan el máximo para este tipo.');
+      pintarChips(); actualizar();
+    };
+    f.fecha.onchange = actualizar;
+    actualizar();
     f.onsubmit = async ev => {
       ev.preventDefault();
       const link = f.link.value.trim();

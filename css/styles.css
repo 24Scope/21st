@@ -382,6 +382,8 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .chip-yo strong { color: var(--texto); }
 .fila-campos.tres { grid-template-columns: 2fr 1.2fr 1fr; }
 .historial-actividad { min-width: 0; }
+.aviso-act { font-size: 13px; color: var(--peligro); margin-bottom: 10px; }
+.aviso-act:empty { display: none; }
 .btn-ancho { width: 100%; justify-content: center; height: 40px; font-size: 14px; }
 .selector-acomp { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 40px; padding: 5px 8px;
   border: 1px solid var(--borde-fuerte); border-radius: 8px; background: var(--superficie); cursor: text; }
