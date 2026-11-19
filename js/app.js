@@ -108,7 +108,8 @@ function mostrarEspera(perfil) {
     f.onsubmit = async ev => {
       ev.preventDefault();
       const d = { grado: f.grado.value, clon: f.clon.value.trim(), jedi: f.jedi.value.trim(), discord: f.discord.value.trim() };
-      if (!/^[0-9]{17,20}$/.test(d.discord)) { $('#datos-error').textContent = 'La Discord ID es un número de 17 a 20 cifras (no tu nombre de usuario).'; $('#datos-error').hidden = false; return; }
+      d.discord = d.discord.replace(/^@+/, '').trim();
+      if (d.discord.length < 2) { $('#datos-error').textContent = 'Escribí tu usuario de Discord.'; $('#datos-error').hidden = false; return; }
       $('#btn-datos').disabled = true;
       try { await api.completarDatosCuenta(d); corrigiendoDatos = false; aviso('Datos enviados. Ahora falta que un administrador apruebe tu cuenta.'); await comprobarEspera(false); }
       catch (e) { $('#datos-error').textContent = e.message; $('#datos-error').hidden = false; }
@@ -2138,7 +2139,7 @@ async function vistaUsuarios(cont) {
   const normNombre = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const sugerido = p => {
     const libres = activos.filter(m => !perfiles.some(x => x.id !== p.id && x.miembro_id === m.id && aprobada(x)));
-    if (p.decl_discord) { const m = libres.find(m => String(m.discord_id || '').trim() === p.decl_discord); if (m) return m; }
+    if (p.decl_discord) { const dn = s => String(s || '').trim().replace(/^@+/, '').toLowerCase(); const m = libres.find(m => dn(m.discord_id) && dn(m.discord_id) === dn(p.decl_discord)); if (m) return m; }
     for (const nombre of [p.decl_clon, p.nombre]) {
       const n = normNombre(nombre); if (!n) continue;
       const m = libres.find(m => normNombre(m.nombre) === n || normNombre(m.nombre_iconico) === n)

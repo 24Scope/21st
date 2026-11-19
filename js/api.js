@@ -368,7 +368,8 @@ function crearApiDemo() {
     },
     async completarDatosCuenta(d) {
       const db = leer(); const u = usuarioActual(db);
-      if (!/^[0-9]{17,20}$/.test(d.discord)) throw new Error('La Discord ID tiene que ser el número de 17 a 20 cifras.');
+      d.discord = String(d.discord || '').trim().replace(/^@+/, '');
+      if (d.discord.length < 2 || d.discord.length > 40) throw new Error('Escribí tu usuario de Discord (2 a 40 caracteres).');
       Object.assign(u, { decl_grado: d.grado, decl_clon: d.clon, decl_jedi: d.jedi || null, decl_discord: d.discord, estado: 'pendiente' });
       escribir(db); return perfil(u);
     },
