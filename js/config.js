@@ -114,14 +114,15 @@ const CATEGORIAS = {
     ordenarPor: 'elite',
     // Una tabla chica por especialización, de izquierda a derecha.
     // "valores" en orden: dentro de cada tabla salen primero los del primer valor (los ARC van arriba en Reconocimientos).
-    secciones: { campo: 'elite', lista: [
-      { valores: ['ARC', 'RNE'], titulo: 'Reconocimientos' },
-      { valores: ['ASE'],        titulo: 'Asaltos' },
-      { valores: ['APE'],        titulo: 'Apoyos élite' },
+    // "columna": en vez del rango, cada fila muestra este dato (ARC, RNE, ASE, APE).
+    secciones: { campo: 'elite', columna: 'Especialización', lista: [
+      { valores: ['ARC', 'RNE'], titulo: 'Reconocimientos Élites' },
+      { valores: ['ASE'],        titulo: 'Asaltos Élites' },
+      { valores: ['APE'],        titulo: 'Apoyos Élites' },
     ] },
     columnas: [
-      { clave: 'n_cap',       nombre: 'Capacitaciones', tipo: 'numero' },
-      { clave: 'n_trys',      nombre: 'Trys',           tipo: 'numero' },
+      { clave: 'n_cap',       nombre: 'N° cap.',        tipo: 'numero' },
+      { clave: 'n_trys',      nombre: 'N° trys',        tipo: 'numero' },
       { clave: 'inactividad', nombre: 'Inactividad',    tipo: 'texto' },
     ],
   },

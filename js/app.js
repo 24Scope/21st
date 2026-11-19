@@ -377,12 +377,12 @@ async function vistaRegistro(cat) {
       return `<section class="seccion-hoja">
         <h4>${esc(s.titulo)} <span>${indices.length}</span></h4>
         <div class="seccion-tabla"><table class="hoja compacta"><thead><tr>
-          <th class="col-nombre">Miembro</th><th>Rango</th>
+          <th class="col-nombre">Miembro</th><th>${esc(config.secciones.columna || 'Rango')}</th>
           ${cols.map(c => `<th class="${numCol(c) ? 'num' : ''}">${esc(c.nombre)}</th>`).join('')}
         </tr></thead><tbody>
         ${indices.length ? indices.map(f => { const m = hoja.filas[f];
           return `<tr class="${m.activo ? '' : 'inactivo'}"><td class="col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a></td>
-            <td class="col-grado">${esc(m.grado)}</td>${cols.map((c, ci) => `<td data-f="${f}" data-c="${ci}"></td>`).join('')}</tr>`; }).join('')
+            <td class="col-grado" title="${esc(ELITES[m[campo]] || '')}">${esc(config.secciones.columna ? m[campo] : m.grado)}</td>${cols.map((c, ci) => `<td data-f="${f}" data-c="${ci}"></td>`).join('')}</tr>`; }).join('')
           : `<tr><td colspan="${cols.length + 2}" class="vacio-chico">Sin miembros</td></tr>`}
         </tbody><tfoot><tr><td class="col-nombre">Total</td><td></td>
           ${cols.map((c, ci) => `<td class="num" data-tcol="${ci}" data-sec="${si}"></td>`).join('')}</tr></tfoot></table></div>
@@ -1095,11 +1095,12 @@ async function vistaActividad(cont) {
   const hoyISO = fechaISO(new Date());
   const tipoDe = id => tipos.find(t => t.id === id);
   const etiquetaMiembro = id => { const m = porId.get(id); return m ? `${m.grado} ${m.nombre}` : `#${id}`; };
+  const verHistorial = yo?.categoria === 'comandantes';   // el historial completo solo lo ven los comandantes
 
   cont.innerHTML = `
-    <div class="actividad-grid">
-      <section class="tarjeta" id="panel-form"></section>
-      <section>
+    <div class="actividad-centro">
+      <section class="tarjeta panel-actividad" id="panel-form"></section>
+      ${verHistorial ? `<section class="historial-actividad">
         <div class="herramientas">
           <h3 style="margin:0;font-size:15px">Historial de actividades</h3>
           <span class="espacio"></span>
@@ -1110,7 +1111,7 @@ async function vistaActividad(cont) {
         <div class="envoltorio-tabla"><table class="datos tabla-actividades"><thead><tr>
           <th>Fecha</th><th>Actividad</th><th>Participantes</th><th>Cargada por</th><th>Informe</th><th></th>
         </tr></thead><tbody id="cuerpo-act"></tbody></table></div>
-      </section>
+      </section>` : ''}
     </div>`;
 
   /* ---------- formulario */
@@ -1123,34 +1124,89 @@ async function vistaActividad(cont) {
       return;
     }
     panel.innerHTML = `
-      <h3>Registrar actividad</h3>
-      <p class="dato-etiqueta" style="margin:-6px 0 14px">Cargás como <strong style="color:var(--texto)">${esc(yo.grado)} ${esc(yo.nombre)}</strong></p>
+      <div class="panel-actividad-cab">
+        <h3>Registrar actividad</h3>
+        <span class="chip-yo">Cargás como <strong>${esc(yo.grado)} ${esc(yo.nombre)}</strong></span>
+      </div>
       <form id="form-act">
-        <label class="campo"><span>Tipo de actividad</span>
-          <select name="tipo" required><option value="">— Elegir —</option>${tipos.map(t => `<option value="${esc(t.id)}">${esc(t.nombre)}</option>`).join('')}</select></label>
-        <div class="fila-campos">
+        <div class="fila-campos tres">
+          <label class="campo"><span>Tipo de actividad</span>
+            <select name="tipo" required><option value="">— Elegir —</option>${tipos.map(t => `<option value="${esc(t.id)}">${esc(t.nombre)}</option>`).join('')}</select></label>
           <label class="campo"><span>Fecha</span><input name="fecha" type="date" required max="${hoyISO}" value="${hoyISO}"></label>
           <label class="campo"><span>Hora</span><input name="hora" type="time"></label>
         </div>
-        <div class="campo"><span>¿La hiciste con alguien más? (opcional)</span>
-          <input class="entrada" id="buscar-acomp" placeholder="Buscar miembro…" autocomplete="off">
-          <div class="lista-acomp" id="lista-acomp">${candidatos.map(m => `
-            <label class="item-acomp" data-texto="${esc((m.grado + ' ' + m.nombre + ' ' + (m.discord_id || '')).toLowerCase())}">
-              <input type="checkbox" value="${m.id}"> <span><strong>${esc(m.grado)}</strong> ${esc(m.nombre)}</span></label>`).join('')}</div>
-          <div class="dato-etiqueta" id="elegidos-acomp"></div>
+        <div class="campo"><span>¿Con quién la hiciste? <small class="tenue">(opcional)</small></span>
+          <div class="selector-acomp" id="selector-acomp">
+            <div class="chips-acomp" id="chips-acomp"></div>
+            <input id="buscar-acomp" placeholder="Escribí un nombre, rango o Discord…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="resultados-acomp">
+          </div>
+          <div class="resultados-acomp" id="resultados-acomp" role="listbox" hidden></div>
         </div>
         <label class="campo"><span>Link del informe en Discord</span>
           <input name="link" type="url" required placeholder="https://discord.com/channels/…" class="mono"></label>
-        <label class="campo"><span>Notas (opcional)</span><textarea name="notas" maxlength="500" style="min-height:60px"></textarea></label>
+        <label class="campo"><span>Notas <small class="tenue">(opcional)</small></span><textarea name="notas" maxlength="500" style="min-height:56px"></textarea></label>
         <div class="vista-previa" id="vista-previa"></div>
-        <div class="modal-pie"><button class="btn primario" id="btn-enviar-act">Enviar actividad</button></div>
+        <button class="btn primario btn-ancho" id="btn-enviar-act">Enviar actividad</button>
       </form>`;
 
     const f = $('#form-act');
-    const elegidos = () => $$('#lista-acomp input:checked').map(i => +i.value);
+    const seleccion = [];               // ids de los acompañantes, en el orden en que se eligieron
+    let marcado = 0;                    // resultado resaltado con el teclado
+    const elegidos = () => [...seleccion];
+    const buscar = $('#buscar-acomp'), resultados = $('#resultados-acomp');
+    const textoBusqueda = m => `${m.grado} ${m.nombre} ${m.discord_id || ''} ${m.nombre_iconico || ''} ${m.elite || ''}`.toLowerCase();
+
+    function pintarChips() {
+      $('#chips-acomp').innerHTML = seleccion.map(id => {
+        const m = porId.get(id);
+        return `<span class="chip-acomp"><strong>${esc(m.grado)}</strong> ${esc(m.nombre)}<button type="button" data-quitar="${id}" aria-label="Quitar a ${esc(m.nombre)}">×</button></span>`;
+      }).join('');
+    }
+    function coincidencias() {
+      const q = buscar.value.trim().toLowerCase();
+      return candidatos.filter(m => !seleccion.includes(m.id) && (!q || q.split(/\s+/).every(p => textoBusqueda(m).includes(p))));
+    }
+    function pintarResultados() {
+      const lista = coincidencias();
+      marcado = Math.min(marcado, Math.max(lista.length - 1, 0));
+      resultados.hidden = false; buscar.setAttribute('aria-expanded', 'true');
+      resultados.innerHTML = lista.length ? lista.map((m, i) => `
+        <div class="res-acomp ${i === marcado ? 'marcado' : ''}" role="option" data-elegir="${m.id}">
+          <span class="res-rango">${esc(m.grado)}</span><span class="res-nombre">${esc(m.nombre)}</span>
+          ${ELITES[m.elite] ? `<span class="etiqueta admin">${esc(m.elite)}</span>` : ''}
+          <span class="res-cat">${esc(tituloCat(m.categoria))}</span>
+        </div>`).join('') : '<div class="res-vacio">Nadie coincide con la búsqueda.</div>';
+      $('.res-acomp.marcado', resultados)?.scrollIntoView({ block: 'nearest' });
+    }
+    function cerrarResultados() { resultados.hidden = true; buscar.setAttribute('aria-expanded', 'false'); }
+    function elegir(id) {
+      if (!seleccion.includes(id)) seleccion.push(id);
+      buscar.value = ''; marcado = 0;
+      pintarChips(); pintarResultados(); actualizar(); buscar.focus();
+    }
+    buscar.onfocus = pintarResultados;
+    buscar.oninput = () => { marcado = 0; pintarResultados(); };
+    buscar.onkeydown = ev => {
+      const lista = coincidencias();
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); marcado = Math.min(marcado + 1, lista.length - 1); pintarResultados(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); marcado = Math.max(marcado - 1, 0); pintarResultados(); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); if (!resultados.hidden && lista[marcado]) elegir(lista[marcado].id); }
+      else if (ev.key === 'Escape') cerrarResultados();
+      else if (ev.key === 'Backspace' && !buscar.value && seleccion.length) { seleccion.pop(); pintarChips(); pintarResultados(); actualizar(); }
+    };
+    resultados.onmousedown = ev => {     // mousedown para que no se cierre antes por el blur
+      const r = ev.target.closest('[data-elegir]'); if (!r) return;
+      ev.preventDefault(); elegir(+r.dataset.elegir);
+    };
+    $('#selector-acomp').onclick = ev => {
+      const q = ev.target.closest('[data-quitar]');
+      if (q) { seleccion.splice(seleccion.indexOf(+q.dataset.quitar), 1); pintarChips(); actualizar(); }
+      buscar.focus();
+    };
+    buscar.onblur = () => setTimeout(cerrarResultados, 120);
+
     const actualizar = () => {
       const ids = elegidos();
-      $('#elegidos-acomp').textContent = ids.length ? 'Con: ' + ids.map(etiquetaMiembro).join(', ') : '';
       const t = tipoDe(f.tipo.value);
       if (!t) { $('#vista-previa').innerHTML = ''; return; }
       const [anio, mes] = (f.fecha.value || hoyISO).split('-').map(Number);
@@ -1163,11 +1219,6 @@ async function vistaActividad(cont) {
       $('#vista-previa').innerHTML = `<div class="dato-etiqueta" style="margin-bottom:4px">Se va a sumar en ${MESES[mes - 1]} ${anio}:</div><ul>${lineas.join('')}</ul>`;
     };
     f.tipo.onchange = actualizar; f.fecha.onchange = actualizar;
-    $('#lista-acomp').onchange = actualizar;
-    $('#buscar-acomp').oninput = e => {
-      const q = e.target.value.trim().toLowerCase();
-      $$('#lista-acomp .item-acomp').forEach(l => { l.hidden = q && !l.dataset.texto.includes(q); });
-    };
     f.onsubmit = async ev => {
       ev.preventDefault();
       const link = f.link.value.trim();
@@ -1185,6 +1236,7 @@ async function vistaActividad(cont) {
 
   /* ---------- historial */
   function pintarHistorial() {
+    if (!verHistorial) return;
     const lista = actividades.filter(a => filtro.ver === 'anuladas' ? a.anulada
       : !a.anulada && (filtro.ver !== 'mias' || a.participantes.includes(yo?.id) || a.autor_perfil === estado.perfil.id));
     $('#cuerpo-act').innerHTML = lista.length ? lista.map(a => {
@@ -1200,8 +1252,8 @@ async function vistaActividad(cont) {
     }).join('') : `<tr><td colspan="6" class="vacio">${filtro.ver === 'anuladas' ? 'No hay actividades anuladas.' : 'Todavía no hay actividades cargadas.'}</td></tr>`;
   }
 
-  $('#ver-act').onchange = e => { filtro.ver = e.target.value; pintarHistorial(); };
-  $('#cuerpo-act').onclick = async ev => {
+  if (verHistorial) $('#ver-act').onchange = e => { filtro.ver = e.target.value; pintarHistorial(); };
+  if (verHistorial) $('#cuerpo-act').onclick = async ev => {
     const b = ev.target.closest('[data-anular]'); if (!b) return;
     const a = actividades.find(x => x.id == b.dataset.anular);
     if (!await confirmar('Anular actividad', `Se va a anular "${tipoDe(a.tipo)?.nombre}" del ${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')} y se descuenta de las tablas de ${a.participantes.length} participante${a.participantes.length === 1 ? '' : 's'}.`, 'Anular')) return;
