@@ -104,7 +104,7 @@ function crearApiSupabase() {
     // ---- Actividades (las suma la base de datos con registrar_actividad / anular_actividad)
     async listarTiposActividad() {
       const [tipos, efectos] = await Promise.all([
-        sb.from('tipos_actividad').select('*').eq('activo', true).order('orden'),
+        sb.from('tipos_actividad').select('*').order('orden'),   // también los inactivos, para nombrar actividades viejas
         sb.from('tipos_actividad_efectos').select('*'),
       ]);
       const t = ok(tipos), e = ok(efectos);

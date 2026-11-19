@@ -77,11 +77,11 @@ const CATEGORIAS = {
     incluye: ['comandantes', 'oficiales'],
     columnas: [
       { clave: 'ents_21',  nombre: 'Ents 21st',            tipo: 'numero' },
-      { clave: 'ents_esp', nombre: 'Ents especialización', tipo: 'numero' },
+      { clave: 'ents_esp', nombre: 'Cap. élite',           tipo: 'numero' },
       { clave: 'ents_bu',  nombre: 'Ents BU',              tipo: 'numero' },
       { clave: 'roles_pj', nombre: 'Rol PJ',               tipo: 'numero' },
       { clave: 'minirol',  nombre: 'Minirol',              tipo: 'numero' },
-      { clave: 'try_bu',   nombre: 'Try BU',               tipo: 'numero' },
+      { clave: 'try_bu',   nombre: 'Org. Try BU',          tipo: 'numero' },
       { clave: 'try_esp',  nombre: 'Try especialización',  tipo: 'numero' },
       { clave: 'try_21',   nombre: 'Try 21st',             tipo: 'numero' },
       { clave: 'act_total', nombre: 'Act. total', tipo: 'calculada', numerica: true,
@@ -95,7 +95,7 @@ const CATEGORIAS = {
     incluye: ['suboficiales'],
     columnas: [
       { clave: 'ents_21',  nombre: 'Ents 21st',           tipo: 'numero' },
-      { clave: 'ents_esp', nombre: 'Ents élite',          tipo: 'numero' },
+      { clave: 'ents_esp', nombre: 'Cap. élite',          tipo: 'numero' },
       { clave: 'ents_bu',  nombre: 'Ents BU',             tipo: 'numero' },
       { clave: 'roles_pj', nombre: 'Roles PJ',            tipo: 'numero' },
       { clave: 'minirol',  nombre: 'Miniroles',           tipo: 'numero' },

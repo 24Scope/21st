@@ -1131,9 +1131,9 @@ async function vistaActividad(cont) {
       <form id="form-act">
         <div class="fila-campos tres">
           <label class="campo"><span>Tipo de actividad</span>
-            <select name="tipo" required><option value="">— Elegir —</option>${tipos.map(t => `<option value="${esc(t.id)}">${esc(t.nombre)}</option>`).join('')}</select></label>
-          <label class="campo"><span>Fecha</span><input name="fecha" type="date" required max="${hoyISO}" value="${hoyISO}"></label>
-          <label class="campo"><span>Hora</span><input name="hora" type="time"></label>
+            <select name="tipo" required><option value="">— Elegir —</option>${tipos.filter(t => t.activo !== false).map(t => `<option value="${esc(t.id)}">${esc(t.nombre)}</option>`).join('')}</select></label>
+          <label class="campo"><span>Fecha</span><input name="fecha" type="date" required max="${fechaISO(new Date())}" value="${fechaISO(new Date())}"></label>
+          <label class="campo"><span>Hora</span><input name="hora" type="time" value="${pad(new Date().getHours())}:${pad(new Date().getMinutes())}"></label>
         </div>
         <div class="campo"><span>¿Con quién la hiciste? <small class="tenue">(opcional)</small></span>
           <div class="selector-acomp" id="selector-acomp">
