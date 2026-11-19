@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=21">
+  <link rel="stylesheet" href="css/styles.css?v=22">
 </head>
 <body>
   <!-- ====================== PANTALLA DE ACCESO ====================== -->
@@ -43,6 +43,21 @@
         <strong>Modo demo:</strong> todavía no se conectó Supabase. Las cuentas y datos se guardan solo en este navegador.
         La primera cuenta que crees será Administrador.
       </p>
+    </div>
+  </section>
+
+  <!-- ====================== CUENTA PENDIENTE ====================== -->
+  <section id="pantalla-espera" class="acceso" hidden>
+    <div class="acceso-tarjeta espera-tarjeta">
+      <div class="marca grande"><span class="marca-logo">21</span><span class="marca-texto" data-nombre-sitio></span></div>
+      <div class="espera-icono" id="espera-icono">⏳</div>
+      <h2 id="espera-titulo">Cuenta pendiente de aprobación</h2>
+      <p class="acceso-sub" id="espera-texto"></p>
+      <p class="espera-cuenta" id="espera-cuenta"></p>
+      <div class="espera-botones">
+        <button class="btn primario" id="btn-espera-comprobar">Comprobar de nuevo</button>
+        <button class="btn" id="btn-espera-salir">Cerrar sesión</button>
+      </div>
     </div>
   </section>
 
@@ -84,8 +99,8 @@
   <div id="avisos" class="avisos"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="js/config.js?v=21"></script>
-  <script src="js/api.js?v=21"></script>
-  <script src="js/app.js?v=21"></script>
+  <script src="js/config.js?v=22"></script>
+  <script src="js/api.js?v=22"></script>
+  <script src="js/app.js?v=22"></script>
 </body>
 </html>

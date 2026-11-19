@@ -382,6 +382,37 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .chip-yo strong { color: var(--texto); }
 .fila-campos.tres { grid-template-columns: 2fr 1.2fr 1fr; }
 .historial-actividad { min-width: 0; }
+/* Cuentas pendientes de aprobación */
+.menu-contador { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--acento);
+  color: #fff; font-size: 11.5px; font-weight: 700; display: inline-grid; place-items: center; }
+.pendientes { margin-bottom: 18px; }
+.pend-cab { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.pend-cab h3 { margin: 0; font-size: 16px; }
+.pend-cab .menu-contador { margin-left: 0; }
+.pendiente { display: grid; grid-template-columns: minmax(200px, 1.3fr) minmax(180px, 1.4fr) minmax(110px, .7fr) minmax(130px, .8fr) auto;
+  gap: 12px; align-items: end; padding: 12px; border: 1px solid var(--borde-fuerte); border-left: 3px solid var(--acento);
+  border-radius: 8px; margin-top: 10px; background: var(--superficie-2); }
+.pendiente .campo { margin: 0; }
+.pendiente .entrada { height: 34px; width: 100%; }
+.pend-quien { display: flex; gap: 10px; align-items: center; min-width: 0; align-self: center; }
+.pend-quien > div { display: flex; flex-direction: column; min-width: 0; }
+.pend-quien small { color: var(--texto-3); font-size: 12px; overflow-wrap: anywhere; }
+.avatar.chico { width: 32px; height: 32px; font-size: 14px; flex: none; }
+.pend-acciones { display: flex; gap: 6px; }
+.vacio-chico { color: var(--texto-3); margin: 4px 0 0; font-size: 13.5px; }
+.pend-rechazadas { margin-top: 14px; font-size: 13.5px; }
+.pend-rechazadas summary { cursor: pointer; color: var(--texto-2); }
+.pend-rech { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--borde); }
+.pend-rech small { color: var(--texto-3); }
+@media (max-width: 1000px) { .pendiente { grid-template-columns: 1fr 1fr; } .pend-quien { grid-column: 1 / -1; } }
+@media (max-width: 560px) { .pendiente { grid-template-columns: 1fr; } }
+.espera-tarjeta { text-align: center; }
+.espera-tarjeta .marca { justify-content: center; }
+.espera-icono { font-size: 34px; margin: 18px 0 6px; }
+.espera-tarjeta h2 { margin: 0; font-size: 19px; }
+.espera-cuenta { font-size: 13px; color: var(--texto-3); margin: -10px 0 18px; overflow-wrap: anywhere; }
+.espera-botones { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
 /* Informar inactividad */
 .opciones-tarjeta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .opcion-tarjeta { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--borde-fuerte);

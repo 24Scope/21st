@@ -28,7 +28,7 @@ function crearApiSupabase() {
   async function perfilDe(user) {
     if (!user) return null;
     const p = ok(await sb.from('perfiles').select('*').eq('id', user.id).maybeSingle());
-    return p || { id: user.id, nombre: user.email, email: user.email, rango: 1 };
+    return p || { id: user.id, nombre: user.email, email: user.email, rango: 1, estado: 'pendiente' };
   }
 
   return {
@@ -162,6 +162,13 @@ function crearApiSupabase() {
     async vincularMiembro(perfilId, miembroId) {
       ok(await sb.from('perfiles').update({ miembro_id: miembroId || null }).eq('id', perfilId));
     },
+    // ---- Aprobación de cuentas nuevas
+    async aprobarCuenta(perfilId, { miembro_id, rango }) {
+      const { data: s } = await sb.auth.getSession();
+      ok(await sb.from('perfiles').update({ estado: 'aprobada', miembro_id: miembro_id || null, rango,
+        aprobado_por: s.session?.user.id || null, aprobado_en: new Date().toISOString() }).eq('id', perfilId));
+    },
+    async cambiarEstadoCuenta(perfilId, estado) { ok(await sb.from('perfiles').update({ estado }).eq('id', perfilId)); },
 
     suscribir(tabla, alCambiar) {
       const canal = sb.channel('rt-' + tabla + '-' + Math.random().toString(36).slice(2))
@@ -205,10 +212,11 @@ function crearApiDemo() {
     const u = db.usuarios.find(u => u.id == sid);
     return u || null;
   }
-  const perfil = u => u && ({ id: u.id, nombre: u.nombre, email: u.email, rango: u.rango, creado_en: u.creado_en, miembro_id: u.miembro_id || null });
+  const perfil = u => u && ({ id: u.id, nombre: u.nombre, email: u.email, rango: u.rango, creado_en: u.creado_en, miembro_id: u.miembro_id || null,
+    estado: u.estado || 'aprobada' });
   const puedeEditar = db => { const u = usuarioActual(db); return !!u && (u.rango >= 2 || db.ajustes.modo_abierto === true); };
   const exigirEdicion = db => { if (!puedeEditar(db)) throw new Error('No tenés permiso para hacer esto.'); };
-  const exigirAdmin = db => { const u = usuarioActual(db); if (!u || u.rango < 2) throw new Error('No tenés permiso para hacer esto.'); };
+  const exigirAdmin = db => { const u = usuarioActual(db); if (!u || u.rango < 2 || (u.estado && u.estado !== 'aprobada')) throw new Error('No tenés permiso para hacer esto.'); };
 
   return {
     async registrar(email, pass, nombre) {
@@ -217,7 +225,7 @@ function crearApiDemo() {
       if (db.usuarios.some(u => u.email === email)) throw new Error('Ya existe una cuenta con ese email.');
       if (pass.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres.');
       const u = { id: id(db), email, pass, nombre: nombre || email.split('@')[0],
-        rango: db.usuarios.length ? 1 : 2, creado_en: new Date().toISOString() };
+        rango: db.usuarios.length ? 1 : 2, estado: db.usuarios.length ? 'pendiente' : 'aprobada', creado_en: new Date().toISOString() };
       db.usuarios.push(u); escribir(db);
       try { localStorage.setItem(SESION, u.id); } catch {}
       return perfil(u);
@@ -346,6 +354,14 @@ function crearApiDemo() {
     async vincularMiembro(uid, miembroId) {
       const db = leer(); exigirAdmin(db);
       db.usuarios.find(u => u.id == uid).miembro_id = miembroId || null; escribir(db);
+    },
+    async aprobarCuenta(uid, { miembro_id, rango }) {
+      const db = leer(); exigirAdmin(db);
+      if (miembro_id && db.usuarios.some(u => u.id != uid && u.miembro_id == miembro_id)) throw new Error('Ese miembro ya está vinculado a otra cuenta.');
+      Object.assign(db.usuarios.find(u => u.id == uid), { estado: 'aprobada', miembro_id: miembro_id || null, rango }); escribir(db);
+    },
+    async cambiarEstadoCuenta(uid, estado) {
+      const db = leer(); exigirAdmin(db); db.usuarios.find(u => u.id == uid).estado = estado; escribir(db);
     },
 
     suscribir(tabla, alCambiar) {

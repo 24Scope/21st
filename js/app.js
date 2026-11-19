@@ -71,7 +71,36 @@ let modoAcceso = 'entrar';
 
 function mostrarAcceso() {
   $('#app').hidden = true;
+  $('#pantalla-espera').hidden = true;
   $('#pantalla-acceso').hidden = false;
+}
+
+/* ------------------------------------------------------------ cuenta pendiente de aprobación */
+let limpiarEspera = null;
+function mostrarEspera(perfil) {
+  estado.perfil = null;
+  $('#app').hidden = true;
+  $('#pantalla-acceso').hidden = true;
+  $('#pantalla-espera').hidden = false;
+  const rechazada = perfil.estado === 'rechazada';
+  $('#espera-icono').textContent = rechazada ? '✕' : '⏳';
+  $('#espera-titulo').textContent = rechazada ? 'Cuenta no aprobada' : 'Cuenta pendiente de aprobación';
+  $('#espera-texto').textContent = rechazada
+    ? 'Un administrador no aprobó esta cuenta. Si creés que es un error, hablá con un administrador de la legión.'
+    : 'Tu cuenta se creó bien. Un administrador tiene que aprobarla y vincularla con tu nombre en la legión antes de que puedas entrar al panel. Esta pantalla se actualiza sola cuando te aprueben.';
+  $('#espera-cuenta').textContent = `${perfil.nombre || ''} · ${perfil.email || ''}`;
+  if (limpiarEspera) { try { limpiarEspera(); } catch {} limpiarEspera = null; }
+  if (!rechazada && !MODO_DEMO) limpiarEspera = api.suscribir('perfiles', () => comprobarEspera(false));
+}
+async function comprobarEspera(conAviso = true) {
+  try {
+    const p = await api.sesionActual();
+    if (!p) return mostrarAcceso();
+    if (p.estado && p.estado !== 'aprobada') { mostrarEspera(p); if (conAviso) aviso('Tu cuenta todavía no fue aprobada.'); return; }
+    if (limpiarEspera) { try { limpiarEspera(); } catch {} limpiarEspera = null; }
+    $('#pantalla-espera').hidden = true;
+    await entrarApp(p);
+  } catch (e) { fallo(e); }
 }
 
 function iniciarAcceso() {
@@ -108,6 +137,7 @@ function mostrarErrorAcceso(m) { $('#acceso-error').textContent = m; $('#acceso-
 
 /* ------------------------------------------------------------ app */
 async function entrarApp(perfil) {
+  if (perfil.estado && perfil.estado !== 'aprobada') return mostrarEspera(perfil);
   estado.perfil = perfil;
   try { estado.ajustes = await api.obtenerAjustes(); } catch (e) { fallo(e); }
   $('#pantalla-acceso').hidden = true;
@@ -122,6 +152,19 @@ async function entrarApp(perfil) {
   pintarChipPermiso();
   pintarMenu();
   navegar();
+  actualizarPendientes();
+  if (esAdmin() && !estado.subPendientes && !MODO_DEMO) estado.subPendientes = api.suscribir('perfiles', () => actualizarPendientes());
+}
+
+async function actualizarPendientes() {
+  if (!esAdmin()) return;
+  try {
+    const n = (await api.listarPerfiles()).filter(p => p.estado === 'pendiente').length;
+    const a = $('.menu-item[data-id="usuarios"]');
+    if (!a) return;
+    a.querySelector('.menu-contador')?.remove();
+    if (n) a.insertAdjacentHTML('beforeend', `<span class="menu-contador" title="${n} cuenta${n === 1 ? '' : 's'} pendiente${n === 1 ? '' : 's'} de aprobación">${n}</span>`);
+  } catch {}
 }
 
 function pintarChipPermiso() {
@@ -1927,8 +1970,11 @@ async function vistaUsuarios(cont) {
   let [perfiles, miembros] = await Promise.all([api.listarPerfiles(), api.listarMiembros()]);
   estado.ajustes = await api.obtenerAjustes();
   const vinculables = ordenarMiembros(miembros.filter(m => m.activo && CATS_FORMULARIO.includes(m.categoria)));
+  const activos = ordenarMiembros(miembros.filter(m => m.activo));
+  const aprobada = p => !p.estado || p.estado === 'aprobada';
 
   cont.innerHTML = `
+    <section class="tarjeta pendientes" id="pendientes"></section>
     <div class="tarjeta" style="margin-bottom:18px">
       <label class="interruptor"><input type="checkbox" id="modo-abierto" ${estado.ajustes.modo_abierto === true ? 'checked' : ''}>
         <span><strong>Modo abierto</strong><br><span style="color:var(--texto-2)">Mientras esté activo, cualquier cuenta registrada puede editar tablas, miembros, calendario y reglamento.
@@ -1945,7 +1991,8 @@ async function vistaUsuarios(cont) {
     return `<option value="${m.id}" ${p.miembro_id === m.id ? 'selected' : ''} ${otro ? 'disabled' : ''}>${esc(m.grado)} ${esc(m.nombre)}${otro ? ` — cuenta ${esc(otro.nombre)}` : ''}</option>`;
   }).join('');
   function pintar() {
-    $('#cuerpo-usuarios').innerHTML = perfiles.map(p => `<tr>
+    pintarPendientes();
+    $('#cuerpo-usuarios').innerHTML = perfiles.filter(aprobada).map(p => `<tr>
       <td><strong>${esc(p.nombre)}</strong>${p.id === estado.perfil.id ? ' <span class="etiqueta">vos</span>' : ''}</td>
       <td style="color:var(--texto-2)">${esc(p.email)}</td>
       <td><select class="entrada" style="height:32px;max-width:200px" data-rango="${p.id}">${opciones(p.rango)}</select></td>
@@ -1975,6 +2022,109 @@ async function vistaUsuarios(cont) {
       if (p.id === estado.perfil.id) { estado.perfil.rango = nuevo; entrarApp(estado.perfil); }
     } catch (e) { fallo(e); sel.value = p.rango; }
   };
+  // ---- Cuentas pendientes de aprobación
+  const normNombre = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const sugerido = p => {
+    const n = normNombre(p.nombre);
+    if (!n) return null;
+    const libres = activos.filter(m => !perfiles.some(x => x.miembro_id === m.id));
+    return libres.find(m => normNombre(m.nombre) === n || normNombre(m.nombre_iconico) === n)
+        || (n.length >= 4 ? libres.find(m => normNombre(m.nombre).startsWith(n) || n.startsWith(normNombre(m.nombre))) : null) || null;
+  };
+  const elegidos = new Map();   // perfilId -> { miembro, grado, rango }
+  function datosDe(p) {
+    if (!elegidos.has(p.id)) {
+      const m = sugerido(p);
+      elegidos.set(p.id, { miembro: m?.id || '', grado: m?.grado || '', rango: 1 });
+    }
+    return elegidos.get(p.id);
+  }
+  function pintarPendientes() {
+    const pend = perfiles.filter(p => p.estado === 'pendiente');
+    const rech = perfiles.filter(p => p.estado === 'rechazada');
+    const fecha = p => p.creado_en ? new Date(p.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    const tarjeta = p => {
+      const d = datosDe(p);
+      const optsM = `<option value="">— Elegí su nombre en la legión —</option>` + activos.map(m => {
+        const otro = perfiles.find(x => x.id !== p.id && x.miembro_id === m.id && aprobada(x));
+        return `<option value="${m.id}" ${+d.miembro === m.id ? 'selected' : ''} ${otro ? 'disabled' : ''}>${esc(m.grado)} ${esc(m.nombre)}${m.elite ? ` (${esc(m.elite)})` : ''}${otro ? ` — ya es de ${esc(otro.nombre)}` : ''}</option>`;
+      }).join('');
+      const optsG = `<option value="">—</option>` + [...RANGOS_LEGION].reverse().map(g => `<option ${g === d.grado ? 'selected' : ''}>${esc(g)}</option>`).join('');
+      const optsR = Object.entries(RANGOS).map(([n, t]) => `<option value="${n}" ${+n === +d.rango ? 'selected' : ''}>${esc(t)}</option>`).join('');
+      return `<div class="pendiente" data-pend="${p.id}">
+        <div class="pend-quien"><span class="avatar chico">${esc((p.nombre || '?').trim().charAt(0).toUpperCase())}</span>
+          <div><strong>${esc(p.nombre)}</strong><small>${esc(p.email)} · se registró el ${fecha(p)}</small></div></div>
+        <label class="campo"><span>Nombre en la legión</span><select class="entrada" data-campo="miembro">${optsM}</select></label>
+        <label class="campo"><span>Rango en la legión</span><select class="entrada" data-campo="grado" ${d.miembro ? '' : 'disabled'}>${optsG}</select></label>
+        <label class="campo"><span>Permiso en el panel</span><select class="entrada" data-campo="rango">${optsR}</select></label>
+        <div class="pend-acciones">
+          <button class="btn primario" data-accion="aprobar">Aprobar</button>
+          <button class="btn" data-accion="rechazar">Rechazar</button>
+        </div></div>`;
+    };
+    $('#pendientes').innerHTML = `
+      <div class="pend-cab"><h3>Cuentas pendientes de aprobación</h3>${pend.length ? `<span class="menu-contador">${pend.length}</span>` : ''}</div>
+      ${pend.length
+        ? `<p class="ayuda" style="margin-top:0">Estas cuentas se registraron pero no pueden entrar al panel hasta que las apruebes. Elegí a qué miembro de la legión corresponde cada una y su rango; si el rango no coincide con el que figura, se actualiza en Miembros de la legión.</p>
+           ${pend.map(tarjeta).join('')}`
+        : '<p class="vacio-chico">No hay cuentas esperando aprobación.</p>'}
+      ${rech.length ? `<details class="pend-rechazadas"><summary>Cuentas rechazadas (${rech.length})</summary>
+        ${rech.map(p => `<div class="pend-rech"><span><strong>${esc(p.nombre)}</strong> <small>${esc(p.email)} · ${fecha(p)}</small></span>
+          <button class="btn chico" data-reabrir="${p.id}">Volver a pendientes</button></div>`).join('')}</details>` : ''}`;
+  }
+
+  $('#pendientes').onchange = ev => {
+    const caja = ev.target.closest('[data-pend]'); if (!caja) return;
+    const p = perfiles.find(x => String(x.id) === caja.dataset.pend), d = datosDe(p), campo = ev.target.dataset.campo;
+    if (campo === 'miembro') {
+      d.miembro = ev.target.value ? +ev.target.value : '';
+      d.grado = miembros.find(m => m.id === d.miembro)?.grado || '';
+      pintarPendientes();
+    } else if (campo === 'grado') d.grado = ev.target.value;
+    else if (campo === 'rango') d.rango = +ev.target.value;
+  };
+  $('#pendientes').onclick = async ev => {
+    const reabrir = ev.target.closest('[data-reabrir]');
+    if (reabrir) {
+      const p = perfiles.find(x => String(x.id) === reabrir.dataset.reabrir);
+      try { await api.cambiarEstadoCuenta(p.id, 'pendiente'); p.estado = 'pendiente'; aviso(`${p.nombre} volvió a pendientes.`); pintar(); actualizarPendientes(); }
+      catch (e) { fallo(e); }
+      return;
+    }
+    const b = ev.target.closest('[data-accion]'); if (!b) return;
+    const p = perfiles.find(x => String(x.id) === b.closest('[data-pend]').dataset.pend), d = datosDe(p);
+    if (b.dataset.accion === 'rechazar') {
+      if (!await confirmar('Rechazar cuenta', `¿Rechazar la cuenta de ${p.nombre} (${p.email})? No va a poder entrar al panel. Después la podés volver a pendientes.`, 'Rechazar')) return;
+      try { await api.cambiarEstadoCuenta(p.id, 'rechazada'); p.estado = 'rechazada'; aviso(`Cuenta de ${p.nombre} rechazada.`); pintar(); actualizarPendientes(); }
+      catch (e) { fallo(e); }
+      return;
+    }
+    const m = miembros.find(x => x.id === d.miembro);
+    if (!m) return aviso('Elegí a qué miembro de la legión corresponde la cuenta.', 'error');
+    if (!d.grado) return aviso('Elegí el rango en la legión.', 'error');
+    const cambiaGrado = normRango(d.grado) !== normRango(m.grado);
+    const texto = `${p.nombre} va a poder entrar al panel como ${nombreRango(d.rango)}, vinculada a ${d.grado} ${m.nombre}.`
+      + (cambiaGrado ? ` El rango de ${m.nombre} en la legión cambia de ${m.grado || '—'} a ${d.grado}.` : '');
+    if (!await confirmar('Aprobar cuenta', texto, 'Aprobar')) return;
+    b.disabled = true;
+    try {
+      if (cambiaGrado) {
+        const cat = categoriaDeRango(d.grado);
+        const actualizado = await api.guardarMiembro({ id: m.id, grado: d.grado, ...(cat ? { categoria: cat } : {}) });
+        Object.assign(m, actualizado || { grado: d.grado, ...(cat ? { categoria: cat } : {}) });
+      }
+      await api.aprobarCuenta(p.id, { miembro_id: m.id, rango: d.rango });
+      Object.assign(p, { estado: 'aprobada', miembro_id: m.id, rango: d.rango });
+      elegidos.delete(p.id);
+      aviso(`Cuenta de ${p.nombre} aprobada y vinculada a ${d.grado} ${m.nombre}.`);
+      pintar(); actualizarPendientes();
+    } catch (e) { fallo(e); b.disabled = false; }
+  };
+  // Si alguien se registra mientras está abierta la sección, aparece sola
+  if (!MODO_DEMO) estado.limpiezas.push(api.suscribir('perfiles', async () => {
+    try { perfiles = await api.listarPerfiles(); pintar(); } catch {}
+  }));
+
   $('#modo-abierto').onchange = async ev => {
     try { await api.guardarAjuste('modo_abierto', ev.target.checked); estado.ajustes.modo_abierto = ev.target.checked; pintarChipPermiso(); aviso('Ajuste guardado.'); }
     catch (e) { fallo(e); ev.target.checked = !ev.target.checked; }
@@ -1987,7 +2137,15 @@ async function arrancar() {
   $$('[data-nombre-sitio]').forEach(e => e.textContent = NOMBRE_SITIO);
   $$('[data-demo]').forEach(e => e.hidden = !MODO_DEMO);
   iniciarAcceso();
-  $('#btn-salir').onclick = async () => { await api.salir(); estado.perfil = null; location.hash = ''; mostrarAcceso(); };
+  $('#btn-salir').onclick = async () => {
+    if (estado.subPendientes) { try { estado.subPendientes(); } catch {} estado.subPendientes = null; }
+    await api.salir(); estado.perfil = null; location.hash = ''; mostrarAcceso();
+  };
+  $('#btn-espera-salir').onclick = async () => {
+    if (limpiarEspera) { try { limpiarEspera(); } catch {} limpiarEspera = null; }
+    await api.salir(); location.hash = ''; mostrarAcceso();
+  };
+  $('#btn-espera-comprobar').onclick = () => comprobarEspera(true);
   $('#btn-menu').onclick = () => $('#app').classList.toggle('menu-abierto');
   $('#cortina').onclick = () => $('#app').classList.remove('menu-abierto');
   $('#modal-cerrar').onclick = cerrarModal;
