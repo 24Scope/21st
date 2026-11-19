@@ -159,7 +159,7 @@ function navegar() {
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
   cont.scrollTop = 0;
 
-  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios };
+  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo };
   const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
   Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
 }
@@ -1437,6 +1437,212 @@ async function vistaPerfil(cont) {
     estado.limpiezas.push(() => clearInterval(reloj));
   }
   pintar();
+}
+
+/* ============================================================ FORO DE ADMINISTRACIÓN */
+// Texto con saltos de línea y links clickeables
+function textoForo(t) {
+  return esc(t || '').replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+}
+function haceCuanto(fecha) {
+  const s = Math.round((Date.now() - new Date(fecha)) / 1000);
+  if (s < 60) return 'recién';
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
+  if (s < 7 * 86400) { const d = Math.floor(s / 86400); return `hace ${d} día${d === 1 ? '' : 's'}`; }
+  return new Date(fecha).toLocaleDateString('es-AR');
+}
+
+async function vistaForo(cont) {
+  let [temas, perfiles, miembros] = await Promise.all([api.listarTemasForo(), api.listarPerfiles(), api.listarMiembros()]);
+  const porMiembro = new Map(miembros.map(m => [m.id, m]));
+  const autor = uid => {
+    const p = perfiles.find(x => x.id === uid);
+    if (!p) return 'Cuenta borrada';
+    const m = porMiembro.get(p.miembro_id);
+    return m ? `${m.grado} ${m.nombre}` : p.nombre;
+  };
+  const inicial = uid => autor(uid).replace(/^[A-Z0-9]+\s/, '').charAt(0).toUpperCase() || '?';
+  const fechaLarga = f => new Date(f).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+  let actual = +(estado.params?.get('tema') || 0) || null;
+  let comentarios = [];
+  let busqueda = '';
+
+  cont.innerHTML = `
+    <div class="foro">
+      <aside class="foro-lista">
+        <div class="foro-lista-cab">
+          <input class="entrada" id="foro-buscar" placeholder="Buscar tema…">
+          <button class="btn primario" id="foro-nuevo">+ Nuevo tema</button>
+        </div>
+        <div id="foro-temas"></div>
+      </aside>
+      <section class="foro-tema tarjeta" id="foro-tema"></section>
+    </div>
+    <p class="ayuda">Solo lo ven las cuentas con rango Administrador. <kbd>Ctrl</kbd>+<kbd>Enter</kbd> publica el comentario.</p>`;
+
+  const ordenar = () => temas.sort((a, b) => (b.fijado - a.fijado) || (new Date(b.ultima_actividad) - new Date(a.ultima_actividad)));
+
+  function pintarLista() {
+    ordenar();
+    const q = busqueda.trim().toLowerCase();
+    const lista = temas.filter(t => !q || (t.titulo + ' ' + t.texto + ' ' + autor(t.autor)).toLowerCase().includes(q));
+    $('#foro-temas').innerHTML = lista.length ? lista.map(t => `
+      <a class="foro-item ${t.id === actual ? 'activo' : ''}" href="#/foro?tema=${t.id}" data-tema="${t.id}">
+        <div class="foro-item-titulo">${t.fijado ? '<span class="foro-pin" title="Fijado">📌</span>' : ''}${esc(t.titulo)}</div>
+        <div class="foro-item-meta">${esc(autor(t.autor))} · ${haceCuanto(t.ultima_actividad)}
+          <span class="foro-cuenta" title="Comentarios">💬 ${t.n_comentarios ?? 0}</span></div>
+      </a>`).join('')
+      : `<div class="vacio" style="padding:24px 12px">${temas.length ? 'Ningún tema coincide.' : 'Todavía no hay temas.<br>Creá el primero con <strong>+ Nuevo tema</strong>.'}</div>`;
+  }
+
+  async function abrirTema(id) {
+    actual = id;
+    pintarLista();
+    const panel = $('#foro-tema');
+    const t = temas.find(x => x.id === id);
+    if (!t) {
+      panel.innerHTML = `<div class="vacio">${temas.length ? 'Elegí un tema de la lista para leerlo y comentar.' : 'Acá vas a ver los temas y sus comentarios.'}</div>`;
+      return;
+    }
+    panel.innerHTML = '<div class="vacio">Cargando…</div>';
+    comentarios = await api.listarComentariosForo(id);
+    if (actual !== id) return;
+    pintarTema();
+  }
+
+  function pintarTema() {
+    const t = temas.find(x => x.id === actual); if (!t) return abrirTema(null);
+    const mio = t.autor === estado.perfil.id;
+    $('#foro-tema').innerHTML = `
+      <header class="foro-tema-cab">
+        <div style="min-width:0">
+          <h2>${t.fijado ? '📌 ' : ''}${esc(t.titulo)}</h2>
+          <div class="foro-item-meta">Por <strong>${esc(autor(t.autor))}</strong> · ${fechaLarga(t.creado_en)}${t.editado_en ? ' · editado' : ''}</div>
+        </div>
+        <div class="foro-acciones">
+          <button class="btn chico" data-accion="fijar">${t.fijado ? 'Desfijar' : 'Fijar'}</button>
+          ${mio ? '<button class="btn chico" data-accion="editar">Editar</button>' : ''}
+          <button class="btn chico peligro" data-accion="borrar">Borrar</button>
+        </div>
+      </header>
+      ${t.texto ? `<div class="foro-texto">${textoForo(t.texto)}</div>` : ''}
+      <h3 class="foro-sub">Comentarios <span>${comentarios.length}</span></h3>
+      <div class="foro-comentarios">${comentarios.length ? comentarios.map(c => `
+        <article class="foro-com">
+          <div class="foro-avatar">${esc(inicial(c.autor))}</div>
+          <div class="foro-com-cuerpo">
+            <div class="foro-com-cab"><strong>${esc(autor(c.autor))}</strong>
+              <span class="tenue" title="${fechaLarga(c.creado_en)}">${haceCuanto(c.creado_en)}${c.editado_en ? ' · editado' : ''}</span>
+              <span class="espacio"></span>
+              ${c.autor === estado.perfil.id ? `<button class="btn-link" data-editar-com="${c.id}">Editar</button>` : ''}
+              <button class="btn-link peligro" data-borrar-com="${c.id}">Borrar</button>
+            </div>
+            <div class="foro-texto" id="com-${c.id}">${textoForo(c.texto)}</div>
+          </div>
+        </article>`).join('') : '<div class="tenue" style="padding:6px 0 4px">Sin comentarios todavía.</div>'}</div>
+      <form class="foro-responder" id="foro-responder">
+        <textarea name="texto" maxlength="5000" placeholder="Escribí un comentario…" required></textarea>
+        <div class="foro-responder-pie"><span class="tenue">Comentás como ${esc(autor(estado.perfil.id))}</span><button class="btn primario">Comentar</button></div>
+      </form>`;
+
+    const f = $('#foro-responder');
+    f.texto.onkeydown = ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); f.requestSubmit(); } };
+    f.onsubmit = async ev => {
+      ev.preventDefault();
+      const texto = f.texto.value.trim(); if (!texto) return;
+      const btn = $('button', f); btn.disabled = true;
+      try {
+        comentarios.push(await api.guardarComentarioForo({ tema_id: t.id, texto }));
+        t.n_comentarios = comentarios.length; t.ultima_actividad = new Date().toISOString();
+        pintarTema(); pintarLista();
+        $('.foro-comentarios .foro-com:last-child')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } catch (e) { fallo(e); btn.disabled = false; }
+    };
+  }
+
+  function formularioTema(t) {
+    abrirModal(t ? 'Editar tema' : 'Nuevo tema', `
+      <form id="form-tema">
+        <label class="campo"><span>Título</span><input name="titulo" required maxlength="120" value="${esc(t?.titulo || '')}"></label>
+        <label class="campo"><span>Mensaje <small class="tenue">(opcional)</small></span><textarea name="texto" maxlength="5000" style="min-height:140px">${esc(t?.texto || '')}</textarea></label>
+        <div class="modal-pie"><button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn primario">${t ? 'Guardar' : 'Publicar tema'}</button></div>
+      </form>`, c => {
+      const f = $('#form-tema', c);
+      $('[data-cancelar]', c).onclick = cerrarModal;
+      f.titulo.focus();
+      f.onsubmit = async ev => {
+        ev.preventDefault();
+        try {
+          const g = await api.guardarTemaForo({ ...(t ? { id: t.id } : {}), titulo: f.titulo.value.trim(), texto: f.texto.value.trim() });
+          if (t) Object.assign(t, g); else temas.push({ ...g, n_comentarios: 0 });
+          cerrarModal(); aviso(t ? 'Tema guardado.' : 'Tema publicado.');
+          location.hash = `#/foro?tema=${g.id}`;
+          abrirTema(g.id);
+        } catch (e) { fallo(e); }
+      };
+    });
+  }
+
+  $('#foro-nuevo').onclick = () => formularioTema();
+  $('#foro-buscar').oninput = e => { busqueda = e.target.value; pintarLista(); };
+  $('#foro-temas').onclick = ev => {
+    const a = ev.target.closest('[data-tema]'); if (!a) return;
+    ev.preventDefault();
+    history.replaceState(null, '', `#/foro?tema=${a.dataset.tema}`);
+    abrirTema(+a.dataset.tema);
+  };
+  $('#foro-tema').onclick = async ev => {
+    const t = temas.find(x => x.id === actual); if (!t) return;
+    const acc = ev.target.closest('[data-accion]')?.dataset.accion;
+    try {
+      if (acc === 'fijar') { Object.assign(t, await api.guardarTemaForo({ id: t.id, fijado: !t.fijado })); pintarTema(); pintarLista(); }
+      else if (acc === 'editar') formularioTema(t);
+      else if (acc === 'borrar') {
+        if (!await confirmar('Borrar tema', `¿Borrar "${t.titulo}" con sus ${comentarios.length} comentario${comentarios.length === 1 ? '' : 's'}? No se puede deshacer.`, 'Borrar')) return;
+        await api.borrarTemaForo(t.id); temas = temas.filter(x => x !== t);
+        history.replaceState(null, '', '#/foro'); abrirTema(null); aviso('Tema borrado.');
+      }
+      const bc = ev.target.closest('[data-borrar-com]');
+      if (bc) {
+        if (!await confirmar('Borrar comentario', '¿Borrar este comentario? No se puede deshacer.', 'Borrar')) return;
+        await api.borrarComentarioForo(+bc.dataset.borrarCom);
+        comentarios = comentarios.filter(c => c.id !== +bc.dataset.borrarCom); t.n_comentarios = comentarios.length;
+        pintarTema(); pintarLista();
+      }
+      const ec = ev.target.closest('[data-editar-com]');
+      if (ec) {
+        const c = comentarios.find(x => x.id === +ec.dataset.editarCom), caja = $(`#com-${c.id}`);
+        caja.innerHTML = `<textarea class="entrada" style="min-height:80px;width:100%">${esc(c.texto)}</textarea>
+          <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn chico" data-cancelar-com>Cancelar</button><button class="btn chico primario" data-guardar-com>Guardar</button></div>`;
+        const ta = $('textarea', caja); ta.focus();
+        $('[data-cancelar-com]', caja).onclick = e => { e.stopPropagation(); pintarTema(); };
+        $('[data-guardar-com]', caja).onclick = async e => {
+          e.stopPropagation();
+          const texto = ta.value.trim(); if (!texto) return;
+          try { Object.assign(c, await api.guardarComentarioForo({ id: c.id, texto })); pintarTema(); } catch (er) { fallo(er); }
+        };
+      }
+    } catch (e) { fallo(e); }
+  };
+
+  // Cambios de otros administradores en tiempo real
+  let espera;
+  const refrescar = () => {
+    clearTimeout(espera);
+    espera = setTimeout(async () => {
+      if (!$('#modal-fondo').hidden || document.activeElement?.closest?.('.foro-com textarea, .foro-responder textarea:not(:placeholder-shown)')) return;
+      try {
+        temas = await api.listarTemasForo(); pintarLista();
+        if (actual && temas.some(t => t.id === actual)) { comentarios = await api.listarComentariosForo(actual); pintarTema(); }
+        else if (actual) abrirTema(null);
+      } catch {}
+    }, 500);
+  };
+  estado.limpiezas.push(api.suscribir('foro_temas', refrescar), api.suscribir('foro_comentarios', refrescar));
+
+  pintarLista();
+  abrirTema(actual && temas.some(t => t.id === actual) ? actual : (temas.length ? ordenar()[0].id : null));
 }
 
 /* ============================================================ USUARIOS */

@@ -194,6 +194,49 @@ table.hoja { border-collapse: separate; border-spacing: 0; width: max-content; m
 .hoja tr.inactivo .col-nombre { color: var(--texto-3); font-style: italic; }
 .hoja td.solo-lectura { cursor: default; }
 
+/* ------------------------------------------------------------ foro de administración */
+.foro { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+.foro-lista { position: sticky; top: 0; display: flex; flex-direction: column; gap: 10px; }
+.foro-lista-cab { display: flex; gap: 8px; }
+.foro-lista-cab .entrada { flex: 1; min-width: 0; }
+#foro-temas { border: 1px solid var(--borde-fuerte); border-radius: var(--radio); background: var(--superficie);
+  max-height: calc(100vh - 230px); overflow-y: auto; }
+.foro-item { display: block; padding: 10px 12px; border-bottom: 1px solid var(--borde); color: var(--texto); text-decoration: none; }
+.foro-item:last-child { border-bottom: 0; }
+.foro-item:hover { background: var(--superficie-2); }
+.foro-item.activo { background: var(--acento-suave); box-shadow: inset 3px 0 0 var(--acento); }
+.foro-item-titulo { font-weight: 600; font-size: 13.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.foro-pin { margin-right: 4px; font-size: 11px; }
+.foro-item-meta { font-size: 12px; color: var(--texto-3); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.foro-cuenta { margin-left: auto; }
+.foro-tema { min-height: 300px; padding: 20px 22px; }
+.foro-tema-cab { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding-bottom: 12px;
+  border-bottom: 1px solid var(--borde); margin-bottom: 14px; flex-wrap: wrap; }
+.foro-tema-cab h2 { margin: 0 0 4px; font-size: 19px; overflow-wrap: anywhere; }
+.foro-acciones { display: flex; gap: 6px; flex-shrink: 0; }
+.foro-texto { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 14px; }
+.foro-sub { font-size: 14px; margin: 22px 0 10px; display: flex; gap: 6px; align-items: center; }
+.foro-sub span { font-size: 11.5px; color: var(--texto-3); background: var(--superficie-2); border: 1px solid var(--borde);
+  border-radius: 999px; padding: 0 7px; }
+.foro-comentarios { display: flex; flex-direction: column; }
+.foro-com { display: flex; gap: 10px; padding: 12px 0; border-top: 1px solid var(--borde); }
+.foro-com:first-child { border-top: 0; padding-top: 2px; }
+.foro-avatar { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; background: var(--acento-suave); color: var(--acento-texto);
+  display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+.foro-com-cuerpo { flex: 1; min-width: 0; }
+.foro-com-cab { display: flex; gap: 8px; align-items: baseline; font-size: 13px; margin-bottom: 3px; }
+.foro-com-cab .tenue { font-size: 12px; }
+.btn-link { border: 0; background: none; padding: 0; font: inherit; font-size: 12px; color: var(--texto-3); cursor: pointer; }
+.btn-link:hover { color: var(--texto); text-decoration: underline; }
+.btn-link.peligro:hover { color: var(--peligro); }
+.foro-responder { margin-top: 14px; border: 1px solid var(--borde-fuerte); border-radius: 8px; background: var(--superficie); overflow: hidden; }
+.foro-responder:focus-within { border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-suave); }
+.foro-responder textarea { display: block; width: 100%; min-height: 76px; border: 0; outline: none; resize: vertical; padding: 10px 12px;
+  font: inherit; font-size: 14px; background: none; color: var(--texto); }
+.foro-responder-pie { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
+  border-top: 1px solid var(--borde); background: var(--superficie-2); font-size: 12px; }
+@media (max-width: 900px) { .foro { grid-template-columns: 1fr; } .foro-lista { position: static; } #foro-temas { max-height: 280px; } }
+
 /* Hoja dividida en tablas chicas lado a lado (Élites) */
 .hoja-contenedor.con-secciones { border: 0; background: none; max-height: none; overflow: visible; padding-top: 12px; }
 .secciones-hoja { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 12px; align-items: start; }

@@ -118,6 +118,26 @@ function crearApiSupabase() {
         p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [] }));
     },
     async anularActividad(id) { return ok(await sb.rpc('anular_actividad', { p_id: id })); },
+    // ---- Foro de administración (la base solo deja verlo y escribir a administradores)
+    async listarTemasForo() {
+      const filas = ok(await sb.from('foro_temas').select('*, foro_comentarios(count)'));
+      return filas.map(({ foro_comentarios, ...t }) => ({ ...t, n_comentarios: foro_comentarios?.[0]?.count ?? 0 }));
+    },
+    async guardarTemaForo(t) {
+      const { id, ...datos } = t;
+      if (id) return ok(await sb.from('foro_temas').update(datos).eq('id', id).select().single());
+      return ok(await sb.from('foro_temas').insert(datos).select().single());
+    },
+    async borrarTemaForo(id) { ok(await sb.from('foro_temas').delete().eq('id', id)); },
+    async listarComentariosForo(temaId) {
+      return ok(await sb.from('foro_comentarios').select('*').eq('tema_id', temaId).order('creado_en').order('id'));
+    },
+    async guardarComentarioForo(c) {
+      const { id, ...datos } = c;
+      if (id) return ok(await sb.from('foro_comentarios').update({ texto: datos.texto, editado_en: new Date().toISOString() }).eq('id', id).select().single());
+      return ok(await sb.from('foro_comentarios').insert(datos).select().single());
+    },
+    async borrarComentarioForo(id) { ok(await sb.from('foro_comentarios').delete().eq('id', id)); },
     // ---- Perfil de un miembro
     async listarRegistrosMiembro(miembroId) {
       const filas = [];
@@ -266,6 +286,37 @@ function crearApiDemo() {
 
     async listarTiposActividad() { return []; },
     async listarActividades() { return []; },
+    async listarTemasForo() {
+      const db = leer(); exigirAdmin(db);
+      return (db.foroTemas || []).map(t => ({ ...t, n_comentarios: (db.foroComentarios || []).filter(c => c.tema_id === t.id).length }));
+    },
+    async guardarTemaForo(t) {
+      const db = leer(); exigirAdmin(db); db.foroTemas = db.foroTemas || [];
+      const ahora = new Date().toISOString();
+      if (t.id) {
+        const x = db.foroTemas.find(y => y.id === t.id);
+        if ((t.titulo !== undefined || t.texto !== undefined) && x.autor !== usuarioActual(db).id) throw new Error('Solo quien escribió el tema puede editarlo.');
+        Object.assign(x, t, t.titulo !== undefined ? { editado_en: ahora } : {}); escribir(db); return x;
+      }
+      const n = { fijado: false, ...t, id: id(db), autor: usuarioActual(db).id, creado_en: ahora, ultima_actividad: ahora, editado_en: null };
+      db.foroTemas.push(n); escribir(db); return n;
+    },
+    async borrarTemaForo(tid) {
+      const db = leer(); exigirAdmin(db);
+      db.foroTemas = (db.foroTemas || []).filter(t => t.id !== tid);
+      db.foroComentarios = (db.foroComentarios || []).filter(c => c.tema_id !== tid); escribir(db);
+    },
+    async listarComentariosForo(tid) { const db = leer(); exigirAdmin(db); return (db.foroComentarios || []).filter(c => c.tema_id === tid); },
+    async guardarComentarioForo(c) {
+      const db = leer(); exigirAdmin(db); db.foroComentarios = db.foroComentarios || [];
+      const ahora = new Date().toISOString();
+      if (c.id) { const x = db.foroComentarios.find(y => y.id === c.id); Object.assign(x, { texto: c.texto, editado_en: ahora }); escribir(db); return x; }
+      const n = { ...c, id: id(db), autor: usuarioActual(db).id, creado_en: ahora, editado_en: null };
+      db.foroComentarios.push(n);
+      const t = (db.foroTemas || []).find(y => y.id === c.tema_id); if (t) t.ultima_actividad = ahora;
+      escribir(db); return n;
+    },
+    async borrarComentarioForo(cid) { const db = leer(); exigirAdmin(db); db.foroComentarios = (db.foroComentarios || []).filter(c => c.id !== cid); escribir(db); },
     async listarRegistrosMiembro(mid) { return leer().registros.filter(r => r.miembro_id == mid); },
     async listarActividadesMiembro() { return []; },
     async registrarActividad() { throw new Error('El registro de actividades funciona solo con Supabase conectado.'); },
