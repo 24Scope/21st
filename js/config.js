@@ -110,13 +110,14 @@ const CATEGORIAS = {
   elites: {
     titulo: 'Élites',
     incluye: ['comandantes', 'oficiales', 'suboficiales', 'cabos', 'soldados'],
-    filtro: m => ['RNE', 'ASE', 'APE'].includes(m.elite),
+    filtro: m => ['ARC', 'RNE', 'ASE', 'APE'].includes(m.elite),
     ordenarPor: 'elite',
-    // Una tabla chica por especialización, de izquierda a derecha
+    // Una tabla chica por especialización, de izquierda a derecha.
+    // "valores" en orden: dentro de cada tabla salen primero los del primer valor (los ARC van arriba en Reconocimientos).
     secciones: { campo: 'elite', lista: [
-      { valor: 'RNE', titulo: 'Reconocimientos' },
-      { valor: 'ASE', titulo: 'Asaltos' },
-      { valor: 'APE', titulo: 'Apoyos élite' },
+      { valores: ['ARC', 'RNE'], titulo: 'Reconocimientos' },
+      { valores: ['ASE'],        titulo: 'Asaltos' },
+      { valores: ['APE'],        titulo: 'Apoyos élite' },
     ] },
     columnas: [
       { clave: 'n_cap',       nombre: 'Capacitaciones', tipo: 'numero' },

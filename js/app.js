@@ -254,8 +254,12 @@ function calcularFila(config, valor) {
 
 const ORDEN_ELITE = Object.keys(ELITES);
 function ordenarFilasRegistro(config, lista) {
+  const ordenSec = config.secciones ? config.secciones.lista.flatMap(s => s.valores) : null;
   return lista.sort((a, b) => {
-    if (config.ordenarPor === 'elite') {
+    if (ordenSec) {
+      const d = ordenSec.indexOf(a[config.secciones.campo]) - ordenSec.indexOf(b[config.secciones.campo]);
+      if (d) return d;
+    } else if (config.ordenarPor === 'elite') {
       const d = ORDEN_ELITE.indexOf(a.elite) - ORDEN_ELITE.indexOf(b.elite);
       if (d) return d;
     }
@@ -369,7 +373,7 @@ async function vistaRegistro(cat) {
   function pintarSecciones(hc, numCol) {
     const { campo, lista } = config.secciones;
     hc.innerHTML = `<div class="secciones-hoja">${lista.map((s, si) => {
-      const indices = hoja.filas.map((m, f) => m[campo] === s.valor ? f : -1).filter(f => f >= 0);
+      const indices = hoja.filas.map((m, f) => s.valores.includes(m[campo]) ? f : -1).filter(f => f >= 0);
       return `<section class="seccion-hoja">
         <h4>${esc(s.titulo)} <span>${indices.length}</span></h4>
         <div class="seccion-tabla"><table class="hoja compacta"><thead><tr>
@@ -415,7 +419,7 @@ async function vistaRegistro(cat) {
       cols.forEach((c, ci) => lista.forEach((s, si) => {
         const td = $(`[data-tcol="${ci}"][data-sec="${si}"]`); if (!td) return;
         td.textContent = c.tipo === 'numero'
-          ? formatoNum(hoja.filas.reduce((t, m, f) => t + (m[campo] === s.valor ? numero(celdaDe(f, ci)?.valor) : 0), 0)) : '';
+          ? formatoNum(hoja.filas.reduce((t, m, f) => t + (s.valores.includes(m[campo]) ? numero(celdaDe(f, ci)?.valor) : 0), 0)) : '';
       }));
       return;
     }
