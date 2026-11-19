@@ -247,28 +247,24 @@ async function vistaInicio(cont) {
   ]);
   const regs = regsPorAnio.flat();
 
-  const tarjetas = Object.entries(CATEGORIAS).map(([clave, cat]) => {
-    const cant = miembros.filter(m => cat.incluye.includes(m.categoria) && (!cat.filtro || cat.filtro(m)) && m.activo).length;
-    const k = claveHoja(cat, cat.periodo ? periodoDe(cat, hoy) : { anio: anterior.getFullYear(), mes: anterior.getMonth() + 1 });
-    const delPeriodo = regs.filter(r => r.categoria === clave && r.anio === k.anio && r.mes === k.mes && (r.periodo || '') === k.periodo);
-    const colTotal = cat.columnas.find(c => c.tipo === 'calculada' && c.numerica && /total/.test(c.clave) && !/lid/.test(c.clave));
-    let detalle = '';
-    if (colTotal) {
-      const porMiembro = new Map();
-      for (const r of delPeriodo) {
-        if (!porMiembro.has(r.miembro_id)) porMiembro.set(r.miembro_id, {});
-        porMiembro.get(r.miembro_id)[r.columna] = r.valor;
-      }
-      let total = 0;
-      for (const vals of porMiembro.values()) total += numero(calcularFila(cat, col => vals[col])[colTotal.clave]);
-      detalle = `${formatoNum(total)} actividades ${cat.periodo ? 'en el período actual' : 'en ' + MESES[k.mes - 1].toLowerCase()}`;
-    }
-    return `<div class="tarjeta tarjeta-link" data-ir="${clave}">
-      <div class="dato-grande">${cant}</div>
-      <div class="dato-etiqueta">${esc(cat.titulo)} activos</div>
-      ${detalle ? `<div class="dato-etiqueta" style="margin-top:10px">${detalle}</div>` : ''}
-    </div>`;
-  }).join('');
+  // Cantidad actual de miembros por grupo (Blackout Unit: quienes figuran en la última planilla de BU cargada)
+  const actuales = miembros.filter(m => m.activo);
+  const plantelBU = regs.filter(r => r.categoria === 'bu' && r.columna === COL_PLANTEL);
+  const ultimaBU = plantelBU.reduce((u, r) => Math.max(u, r.anio * 100 + r.mes), 0);
+  const idsBU = new Set(plantelBU.filter(r => r.anio * 100 + r.mes === ultimaBU).map(r => r.miembro_id));
+  const grupos = [
+    { titulo: 'Comandantes',    ir: 'oficiales',    cant: actuales.filter(m => m.categoria === 'comandantes').length },
+    { titulo: 'Oficiales',      ir: 'oficiales',    cant: actuales.filter(m => m.categoria === 'oficiales').length },
+    { titulo: 'Suboficiales',   ir: 'suboficiales', cant: actuales.filter(m => m.categoria === 'suboficiales').length },
+    { titulo: 'Élites',         ir: 'elites',       cant: actuales.filter(m => CATEGORIAS.elites.filtro(m)).length },
+    { titulo: 'Blackout Unit',  ir: 'bu',           cant: ultimaBU ? actuales.filter(m => idsBU.has(m.id)).length : 0,
+      nota: ultimaBU ? `según la planilla de ${MESES[ultimaBU % 100 - 1].toLowerCase()} ${Math.floor(ultimaBU / 100)}` : '' },
+  ];
+  const tarjetas = grupos.map(g => `<div class="tarjeta tarjeta-link" data-ir="${g.ir}">
+      <div class="dato-grande">${g.cant}</div>
+      <div class="dato-etiqueta">${esc(g.titulo)}</div>
+      ${g.nota ? `<div class="dato-etiqueta" style="margin-top:6px;font-size:11.5px">${esc(g.nota)}</div>` : ''}
+    </div>`).join('');
 
   const listaEventos = eventos.length ? `<ul class="lista-simple">${eventos.slice(0, 8).map(e => {
     const d = new Date(e.fecha + 'T00:00:00');
@@ -1010,7 +1006,7 @@ async function vistaCalendario(cont) {
     $('#cal').innerHTML = DIAS.map(d => `<div class="cal-dia-nombre">${d}</div>`).join('') + dias.map(d => {
       const iso = fechaISO(d);
       const evs = eventos.filter(e => e.fecha === iso);
-      return `<div class="cal-dia ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${editable ? 'puede' : ''}" data-fecha="${iso}">
+      return `<div class="cal-dia ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso < hoy ? 'pasado' : ''} ${editable && iso >= hoy ? 'puede' : ''}" data-fecha="${iso}">
         <span class="cal-num">${d.getDate()}</span>
         ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)}" data-evento="${e.id}"
             title="${esc((e.hora ? e.hora + ' · ' : '') + e.titulo + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
@@ -1033,8 +1029,8 @@ async function vistaCalendario(cont) {
       <form id="form-evento">
         <label class="campo"><span>Título</span><input name="titulo" required maxlength="100" value="${esc(e.titulo)}"></label>
         <div class="fila-campos">
-          <label class="campo"><span>Fecha</span><input name="fecha" type="date" required value="${esc(e.fecha)}"></label>
-          <label class="campo"><span>Hora</span><input name="hora" type="time" value="${esc(e.hora)}"></label>
+          <label class="campo"><span>Fecha</span><input name="fecha" type="date" required value="${esc(e.fecha)}" ${e.id ? '' : `min="${fechaISO(new Date())}"`}></label>
+          <label class="campo"><span>Hora</span><input name="hora" type="time" ${e.id ? "" : "required"} value="${esc(e.hora)}"></label>
         </div>
         <label class="campo"><span>Tipo</span><select name="tipo">${opciones}</select></label>
         <div class="campo"><span>¿Quiénes la programan? <small class="tenue">(podés sumar a quienes la hacen con vos)</small></span>
@@ -1058,7 +1054,9 @@ async function vistaCalendario(cont) {
       let marcado = 0;
       const texto = m => `${m.grado} ${m.nombre} ${m.nombre_jedi || ''} ${m.discord_id || ''} ${m.elite || ''}`.toLowerCase();
       const pintarOrgs = () => {
-        $('#chips-org', c).innerHTML = orgs.map(id => `<span class="chip-acomp">${esc(nombreOrg(id))}${id === estado.perfil.miembro_id ? ' <small>(vos)</small>' : ''}<button type="button" data-quitar="${id}" aria-label="Quitar">×</button></span>`).join('');
+        $('#chips-org', c).innerHTML = orgs.map(id => id === estado.perfil.miembro_id
+          ? `<span class="chip-acomp chip-fijo" title="Sos quien carga el evento: no te podés quitar">${esc(nombreOrg(id))} <small>(vos)</small></span>`
+          : `<span class="chip-acomp">${esc(nombreOrg(id))}<button type="button" data-quitar="${id}" aria-label="Quitar">×</button></span>`).join('');
       };
       const coincid = () => { const q = buscar.value.trim().toLowerCase();
         return candidatosCal.filter(m => !orgs.includes(m.id) && (!q || q.split(/\s+/).every(p => texto(m).includes(p)))).slice(0, 40); };
@@ -1079,17 +1077,20 @@ async function vistaCalendario(cont) {
         else if (ev.key === 'ArrowUp') { ev.preventDefault(); marcado = Math.max(marcado - 1, 0); pintarRes(); }
         else if (ev.key === 'Enter') { ev.preventDefault(); if (!res.hidden && l[marcado]) elegir(l[marcado].id); }
         else if (ev.key === 'Escape') { ev.stopPropagation(); res.hidden = true; }
-        else if (ev.key === 'Backspace' && !buscar.value && orgs.length) { orgs.pop(); pintarOrgs(); }
+        else if (ev.key === 'Backspace' && !buscar.value && orgs.length && orgs.at(-1) !== estado.perfil.miembro_id) { orgs.pop(); pintarOrgs(); }
       };
       res.onmousedown = ev => { const r = ev.target.closest('[data-elegir]'); if (!r) return; ev.preventDefault(); elegir(+r.dataset.elegir); };
       $('#selector-org', c).onclick = ev => {
         const q = ev.target.closest('[data-quitar]');
-        if (q) { orgs.splice(orgs.indexOf(+q.dataset.quitar), 1); pintarOrgs(); }
+        if (q && +q.dataset.quitar !== estado.perfil.miembro_id) { orgs.splice(orgs.indexOf(+q.dataset.quitar), 1); pintarOrgs(); }
         buscar.focus();
       };
       pintarOrgs();
       $('#form-evento', c).onsubmit = async ev => {
         ev.preventDefault(); const f = ev.target;
+        const cambiaCuando = !e.id || f.fecha.value !== e.fecha || f.hora.value !== e.hora;
+        if (cambiaCuando && new Date(`${f.fecha.value}T${f.hora.value || '23:59'}`) < new Date(Date.now() - 60000))
+          return aviso('No se pueden programar eventos en una fecha u hora que ya pasó.', 'error');
         try {
           await api.guardarEvento({ ...(e.id ? { id: e.id } : {}), titulo: f.titulo.value.trim(), fecha: f.fecha.value,
             hora: f.hora.value, tipo: f.tipo.value, descripcion: f.descripcion.value.trim(), organizadores: orgs });
@@ -1104,7 +1105,8 @@ async function vistaCalendario(cont) {
     });
   }
 
-  const nuevo = fecha => ({ titulo: '', fecha, hora: '', tipo: TIPOS_EVENTO[0]?.nombre || '', descripcion: '',
+  const horaActual = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const nuevo = fecha => ({ titulo: '', fecha, hora: horaActual(), tipo: TIPOS_EVENTO[0]?.nombre || '', descripcion: '',
     organizadores: estado.perfil.miembro_id ? [estado.perfil.miembro_id] : [] });
   $$('[data-mov]', cont).forEach(b => b.onclick = () => {
     const d = new Date(estado.cal.anio, estado.cal.mes - 1 + +b.dataset.mov, 1);
@@ -1116,7 +1118,10 @@ async function vistaCalendario(cont) {
     const be = ev.target.closest('[data-evento]');
     if (be) return formulario(eventos.find(e => e.id == be.dataset.evento));
     const dia = ev.target.closest('[data-fecha]');
-    if (dia && editable) formulario(nuevo(dia.dataset.fecha));
+    if (dia && editable) {
+      if (dia.dataset.fecha < fechaISO(new Date())) return aviso('Ese día ya pasó: no se pueden programar eventos ahí.');
+      formulario(nuevo(dia.dataset.fecha));
+    }
   };
   estado.limpiezas.push(api.suscribir('eventos', () => { if ($('#modal-fondo').hidden) cargar().catch(() => {}); }));
   await cargar();
@@ -1229,6 +1234,10 @@ async function vistaReglamento(cont) {
 
 /* ============================================================ REGISTRAR ACTIVIDAD */
 const CATS_FORMULARIO = ['comandantes', 'oficiales', 'suboficiales'];
+// Trys: se registran solo a nombre de quien la hizo
+const TIPOS_SIN_ACOMP = ['try_21', 'try_esp'];
+const ESPECIALIZACIONES_TRY = { ASE: 'Asalto', APE: 'Apoyo', RNE: 'Reconocimiento' };
+const ESP_DE_ELITE = { ASE: 'ASE', APE: 'APE', RNE: 'RNE', ARC: 'RNE' };
 // En qué registros cuenta cada miembro (igual que en la función registrar_actividad de la base)
 function registroAplica(registro, m) {
   if (registro === 'oficiales') return ['comandantes', 'oficiales'].includes(m.categoria);
@@ -1289,7 +1298,9 @@ async function vistaActividad(cont) {
           <label class="campo"><span>Fecha</span><input name="fecha" type="date" required max="${fechaISO(new Date())}" value="${fechaISO(new Date())}"></label>
           <label class="campo"><span>Hora</span><input name="hora" type="time" value="${pad(new Date().getHours())}:${pad(new Date().getMinutes())}"></label>
         </div>
-        <div class="campo"><span>¿Con quién la hiciste? <small class="tenue" id="limite-acomp">(opcional)</small></span>
+        <label class="campo" id="campo-esp" hidden><span>Especialización de la try <small class="tenue" id="ayuda-esp"></small></span>
+          <select name="especializacion"><option value="">— Elegir —</option>${Object.entries(ESPECIALIZACIONES_TRY).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join('')}</select></label>
+        <div class="campo" id="campo-acomp"><span>¿Con quién la hiciste? <small class="tenue" id="limite-acomp">(opcional)</small></span>
           <div class="selector-acomp" id="selector-acomp">
             <div class="chips-acomp" id="chips-acomp"></div>
             <input id="buscar-acomp" placeholder="Escribí un nombre, rango o Discord…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="resultados-acomp">
@@ -1310,7 +1321,11 @@ async function vistaActividad(cont) {
     const elegidos = () => [...seleccion];
     // Máximo de participantes contando a quien carga: 2, o 3 en Capacitación élite (donde todos tienen que ser élites)
     const esCapElite = () => f.tipo.value === 'ent_esp';
-    const maxAcomp = () => (esCapElite() ? 3 : 2) - 1;
+    const esTry = () => TIPOS_SIN_ACOMP.includes(f.tipo.value);
+    const maxAcomp = () => esTry() ? 0 : (esCapElite() ? 3 : 2) - 1;
+    // Especialización de la try: por defecto la élite propia (ARC cuenta como Reconocimiento); los comandantes eligen cualquiera
+    const miEsp = ESP_DE_ELITE[yo.elite] || '';
+    const eligeLibre = yo.categoria === 'comandantes' || !miEsp;
     const elegible = m => !esCapElite() || !!ELITES[m.elite];
     const buscar = $('#buscar-acomp'), resultados = $('#resultados-acomp');
     const textoBusqueda = m => `${m.grado} ${m.nombre} ${m.discord_id || ''} ${m.nombre_iconico || ''} ${m.elite || ''}`.toLowerCase();
@@ -1372,8 +1387,19 @@ async function vistaActividad(cont) {
     const actualizar = () => {
       const ids = elegidos();
       const max = maxAcomp();
-      $('#limite-acomp').textContent = esCapElite()
+      const tTry = esTry();
+      $('#campo-acomp').classList.toggle('deshabilitado', tTry);
+      buscar.disabled = tTry;
+      buscar.placeholder = tTry ? 'En las trys no se marca a nadie más' : 'Escribí un nombre, rango o Discord…';
+      $('#limite-acomp').textContent = tTry ? '(no disponible en las trys)' : esCapElite()
         ? `(opcional · hasta ${max} élites más)` : `(opcional · hasta ${max} persona${max === 1 ? '' : 's'} más)`;
+      const tEsp = f.tipo.value === 'try_esp';
+      $('#campo-esp').hidden = !tEsp;
+      f.especializacion.required = tEsp;
+      f.especializacion.disabled = tEsp && !eligeLibre;
+      if (tEsp && !f.especializacion.value && miEsp) f.especializacion.value = miEsp;
+      $('#ayuda-esp').textContent = !tEsp ? '' : yo.categoria === 'comandantes' ? '(como comandante podés elegir cualquiera)'
+        : miEsp ? '(solo la de tu élite)' : '';
       const yoNoElite = esCapElite() && !ELITES[yo.elite];
       $('#btn-enviar-act').disabled = yoNoElite;
       $('#aviso-act').innerHTML = yoNoElite ? 'Para registrar una Capacitación élite tenés que tener una élite asignada en el sistema.' : '';
@@ -1393,7 +1419,8 @@ async function vistaActividad(cont) {
       const antes = seleccion.length;
       const quedan = seleccion.filter(id => elegible(porId.get(id))).slice(0, maxAcomp());
       seleccion.splice(0, seleccion.length, ...quedan);
-      if (seleccion.length < antes) aviso(esCapElite() ? 'Se quitaron los acompañantes que no son élites o que superan el máximo.' : 'Se quitaron acompañantes que superan el máximo para este tipo.');
+      if (seleccion.length < antes) aviso(esTry() ? 'En las trys no se marca a nadie más: se quitaron los acompañantes.'
+        : esCapElite() ? 'Se quitaron los acompañantes que no son élites o que superan el máximo.' : 'Se quitaron acompañantes que superan el máximo para este tipo.');
       pintarChips(); actualizar();
     };
     f.fecha.onchange = actualizar;
@@ -1404,7 +1431,9 @@ async function vistaActividad(cont) {
       if (!/^https:\/\/([a-z]+\.)?(discord\.com|discordapp\.com)\//i.test(link)) return aviso('El link tiene que ser un enlace de Discord (https://discord.com/…).', 'error');
       const btn = $('#btn-enviar-act'); btn.disabled = true;
       try {
-        const nueva = await api.registrarActividad({ tipo: f.tipo.value, fecha: f.fecha.value, hora: f.hora.value, link, notas: f.notas.value.trim(), acompanantes: elegidos() });
+        if (f.tipo.value === 'try_esp' && !f.especializacion.value) { aviso('Elegí de qué especialización fue la try.', 'error'); return; }
+        const nueva = await api.registrarActividad({ tipo: f.tipo.value, fecha: f.fecha.value, hora: f.hora.value, link, notas: f.notas.value.trim(),
+          acompanantes: esTry() ? [] : elegidos(), especializacion: f.tipo.value === 'try_esp' ? f.especializacion.value : null });
         actividades.unshift(nueva);
         aviso(`Actividad registrada: ${tipoDe(nueva.tipo)?.nombre}. Se sumó a ${nueva.participantes.length} participante${nueva.participantes.length === 1 ? '' : 's'}.`);
         pintarFormulario(); pintarHistorial();
@@ -1422,7 +1451,7 @@ async function vistaActividad(cont) {
       const puedeAnular = !a.anulada;   // el historial solo lo ven comandantes, que pueden anular siempre
       return `<tr class="${a.anulada ? 'fila-inactiva' : ''}">
         <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
-        <td><strong>${esc(tipoDe(a.tipo)?.nombre || a.tipo)}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
+        <td><strong>${esc(tipoDe(a.tipo)?.nombre || a.tipo)}${a.especializacion ? ` · ${esc(ESPECIALIZACIONES_TRY[a.especializacion] || a.especializacion)}` : ''}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
         <td style="white-space:normal;min-width:160px">${a.participantes.map(id => `<a class="link-perfil" href="#/perfil?id=${id}">${esc(etiquetaMiembro(id))}</a>`).join(', ')}</td>
         <td>${esc(etiquetaMiembro(a.autor_miembro))}<span class="sub">${new Date(a.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</span></td>
         <td><a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir</a></td>
@@ -1545,7 +1574,7 @@ async function vistaPerfil(cont) {
     const cuando = a.anulada ? a.anulada_en : a.creado_en;
     return `<tr>
       <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
-      <td><strong>${esc(tipoNombre(a.tipo))}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
+      <td><strong>${esc(tipoNombre(a.tipo))}${a.especializacion ? ` · ${esc(ESPECIALIZACIONES_TRY[a.especializacion] || a.especializacion)}` : ''}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
       <td>${a.autor_miembro === m.id ? 'Organizó' : 'Participó'}</td>
       <td style="white-space:normal;min-width:140px">${otros.length ? otros.map(id => `<a class="link-perfil" href="#/perfil?id=${id}">${esc(etiqueta(id))}</a>`).join(', ') : '<span class="tenue">—</span>'}</td>
       <td>${a.autor_miembro ? `<a class="link-perfil" href="#/perfil?id=${a.autor_miembro}">${esc(etiqueta(a.autor_miembro))}</a>` : '—'}</td>
@@ -1651,14 +1680,14 @@ async function vistaForo(cont) {
     <div class="foro">
       <aside class="foro-lista">
         <div class="foro-lista-cab">
-          <input class="entrada" id="foro-buscar" placeholder="Buscar tema…">
-          <button class="btn primario" id="foro-nuevo">+ Nuevo tema</button>
+          <input class="entrada" id="foro-buscar" placeholder="Buscar reporte…">
+          <button class="btn primario" id="foro-nuevo">+ Nuevo reporte</button>
         </div>
         <div id="foro-temas"></div>
       </aside>
       <section class="foro-tema tarjeta" id="foro-tema"></section>
     </div>
-    <p class="ayuda">Solo lo ven las cuentas con rango Administrador. <kbd>Ctrl</kbd>+<kbd>Enter</kbd> publica el comentario.</p>`;
+    <p class="ayuda">Contá acá cualquier error o cosa rara que encuentres en el panel: qué hiciste, qué esperabas y qué pasó. Lo leen todas las cuentas. <kbd>Ctrl</kbd>+<kbd>Enter</kbd> publica el comentario.</p>`;
 
   const ordenar = () => temas.sort((a, b) => (b.fijado - a.fijado) || (new Date(b.ultima_actividad) - new Date(a.ultima_actividad)));
 
@@ -1700,9 +1729,9 @@ async function vistaForo(cont) {
           <div class="foro-item-meta">Por <strong>${esc(autor(t.autor))}</strong> · ${fechaLarga(t.creado_en)}${t.editado_en ? ' · editado' : ''}</div>
         </div>
         <div class="foro-acciones">
-          <button class="btn chico" data-accion="fijar">${t.fijado ? 'Desfijar' : 'Fijar'}</button>
+          ${esAdmin() ? `<button class="btn chico" data-accion="fijar">${t.fijado ? 'Desfijar' : 'Fijar'}</button>` : ''}
           ${mio ? '<button class="btn chico" data-accion="editar">Editar</button>' : ''}
-          <button class="btn chico peligro" data-accion="borrar">Borrar</button>
+          ${mio || esAdmin() ? '<button class="btn chico peligro" data-accion="borrar">Borrar</button>' : ''}
         </div>
       </header>
       ${t.texto ? `<div class="foro-texto">${textoForo(t.texto)}</div>` : ''}
@@ -1715,7 +1744,7 @@ async function vistaForo(cont) {
               <span class="tenue" title="${fechaLarga(c.creado_en)}">${haceCuanto(c.creado_en)}${c.editado_en ? ' · editado' : ''}</span>
               <span class="espacio"></span>
               ${c.autor === estado.perfil.id ? `<button class="btn-link" data-editar-com="${c.id}">Editar</button>` : ''}
-              <button class="btn-link peligro" data-borrar-com="${c.id}">Borrar</button>
+              ${c.autor === estado.perfil.id || esAdmin() ? `<button class="btn-link peligro" data-borrar-com="${c.id}">Borrar</button>` : ''}
             </div>
             <div class="foro-texto" id="com-${c.id}">${textoForo(c.texto)}</div>
           </div>
@@ -1741,11 +1770,11 @@ async function vistaForo(cont) {
   }
 
   function formularioTema(t) {
-    abrirModal(t ? 'Editar tema' : 'Nuevo tema', `
+    abrirModal(t ? 'Editar reporte' : 'Nuevo reporte de bug', `
       <form id="form-tema">
-        <label class="campo"><span>Título</span><input name="titulo" required maxlength="120" value="${esc(t?.titulo || '')}"></label>
-        <label class="campo"><span>Mensaje <small class="tenue">(opcional)</small></span><textarea name="texto" maxlength="5000" style="min-height:140px">${esc(t?.texto || '')}</textarea></label>
-        <div class="modal-pie"><button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn primario">${t ? 'Guardar' : 'Publicar tema'}</button></div>
+        <label class="campo"><span>Título</span><input name="titulo" required maxlength="120" value="${esc(t?.titulo || '')}" placeholder="Ej: No se guarda la hora en el calendario"></label>
+        <label class="campo"><span>Detalle <small class="tenue">(qué hiciste, qué esperabas y qué pasó)</small></span><textarea name="texto" maxlength="5000" style="min-height:140px">${esc(t?.texto || '')}</textarea></label>
+        <div class="modal-pie"><button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn primario">${t ? 'Guardar' : 'Publicar reporte'}</button></div>
       </form>`, c => {
       const f = $('#form-tema', c);
       $('[data-cancelar]', c).onclick = cerrarModal;

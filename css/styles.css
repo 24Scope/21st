@@ -287,6 +287,10 @@ table.datos { width: 100%; border-collapse: collapse; background: var(--superfic
 .cal-dia.fuera { background: var(--superficie-2); }
 .cal-dia.fuera .cal-num { color: var(--texto-3); }
 .cal-dia.puede { cursor: pointer; }
+.cal-dia.pasado .cal-num { opacity: .55; }
+.chip-acomp.chip-fijo { padding-right: 10px; }
+.campo.deshabilitado .selector-acomp { opacity: .55; background: var(--superficie-2); }
+.campo.deshabilitado .selector-acomp input { cursor: not-allowed; }
 .cal-dia.puede:hover { box-shadow: inset 0 0 0 2px var(--acento-suave); }
 .cal-num { font-size: 12.5px; font-weight: 600; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
 .cal-dia.hoy .cal-num { background: var(--acento); color: #fff; }

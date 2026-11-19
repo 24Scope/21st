@@ -115,7 +115,7 @@ function crearApiSupabase() {
     },
     async registrarActividad(a) {
       return ok(await sb.rpc('registrar_actividad', { p_tipo: a.tipo, p_fecha: a.fecha, p_hora: a.hora || '',
-        p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [] }));
+        p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [], p_especializacion: a.especializacion || null }));
     },
     async anularActividad(id) { return ok(await sb.rpc('anular_actividad', { p_id: id })); },
     // ---- Avisos de inactividad
@@ -126,7 +126,7 @@ function crearApiSupabase() {
     async crearInactividad(x) { return ok(await sb.from('inactividades').insert(x).select().single()); },
     async cancelarInactividad(id) { return ok(await sb.from('inactividades').update({ cancelada: true }).eq('id', id).select().single()); },
     async borrarInactividad(id) { ok(await sb.from('inactividades').delete().eq('id', id)); },
-    // ---- Foro de administración (la base solo deja verlo y escribir a administradores)
+    // ---- Reporte de bugs (tablas foro_*): lo leen y escriben todas las cuentas aprobadas
     async listarTemasForo() {
       const filas = ok(await sb.from('foro_temas').select('*, foro_comentarios(count)'));
       return filas.map(({ foro_comentarios, ...t }) => ({ ...t, n_comentarios: foro_comentarios?.[0]?.count ?? 0 }));
@@ -320,11 +320,11 @@ function crearApiDemo() {
     },
     async borrarInactividad(iid) { const db = leer(); exigirAdmin(db); db.inactividades = (db.inactividades || []).filter(x => x.id !== iid); escribir(db); },
     async listarTemasForo() {
-      const db = leer(); exigirAdmin(db);
+      const db = leer();
       return (db.foroTemas || []).map(t => ({ ...t, n_comentarios: (db.foroComentarios || []).filter(c => c.tema_id === t.id).length }));
     },
     async guardarTemaForo(t) {
-      const db = leer(); exigirAdmin(db); db.foroTemas = db.foroTemas || [];
+      const db = leer(); db.foroTemas = db.foroTemas || [];
       const ahora = new Date().toISOString();
       if (t.id) {
         const x = db.foroTemas.find(y => y.id === t.id);
@@ -339,9 +339,9 @@ function crearApiDemo() {
       db.foroTemas = (db.foroTemas || []).filter(t => t.id !== tid);
       db.foroComentarios = (db.foroComentarios || []).filter(c => c.tema_id !== tid); escribir(db);
     },
-    async listarComentariosForo(tid) { const db = leer(); exigirAdmin(db); return (db.foroComentarios || []).filter(c => c.tema_id === tid); },
+    async listarComentariosForo(tid) { const db = leer(); return (db.foroComentarios || []).filter(c => c.tema_id === tid); },
     async guardarComentarioForo(c) {
-      const db = leer(); exigirAdmin(db); db.foroComentarios = db.foroComentarios || [];
+      const db = leer(); db.foroComentarios = db.foroComentarios || [];
       const ahora = new Date().toISOString();
       if (c.id) { const x = db.foroComentarios.find(y => y.id === c.id); Object.assign(x, { texto: c.texto, editado_en: ahora }); escribir(db); return x; }
       const n = { ...c, id: id(db), autor: usuarioActual(db).id, creado_en: ahora, editado_en: null };

@@ -232,5 +232,5 @@ const SECCIONES = [
   { id: 'perfil',       titulo: 'Mi perfil',                         icono: '◉', grupo: 'Legión',                 rangoMinimo: 1 },
   { id: 'miembros',     titulo: 'Miembros de la legión',             icono: '☰', grupo: 'Legión',                 rangoMinimo: 1 },
   { id: 'usuarios',     titulo: 'Usuarios y rangos',                 icono: '⚙', grupo: 'Administración',         rangoMinimo: 8 },
-  { id: 'foro',         titulo: 'Foro de administración',            icono: '✎', grupo: 'Administración',         rangoMinimo: 8 },
+  { id: 'foro',         titulo: 'Reporte de bugs',                   icono: '✎', grupo: 'Soporte',                rangoMinimo: 1 },
 ];
