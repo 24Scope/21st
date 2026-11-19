@@ -21,7 +21,7 @@ const $$ = (sel, raiz = document) => [...raiz.querySelectorAll(sel)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = n => String(n).padStart(2, '0');
 const fechaISO = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const esAdmin = () => (estado.perfil?.rango ?? 0) >= 2;
+const esAdmin = () => (estado.perfil?.rango ?? 0) >= RANGO_ADMIN;
 const puedeEditar = () => esAdmin() || estado.ajustes.modo_abierto === true;
 const nombreRango = r => RANGOS[r] || `Rango ${r}`;
 const colorTipo = t => (TIPOS_EVENTO.find(x => x.nombre === t) || { color: '#64748b' }).color;
@@ -82,21 +82,48 @@ function mostrarEspera(perfil) {
   $('#app').hidden = true;
   $('#pantalla-acceso').hidden = true;
   $('#pantalla-espera').hidden = false;
-  const rechazada = perfil.estado === 'rechazada';
-  $('#espera-icono').textContent = rechazada ? '✕' : '⏳';
-  $('#espera-titulo').textContent = rechazada ? 'Cuenta no aprobada' : 'Cuenta pendiente de aprobación';
+  const rechazada = perfil.estado === 'rechazada', datos = perfil.estado === 'datos' || corrigiendoDatos;
+  $('#espera-icono').textContent = rechazada ? '✕' : datos ? '✎' : '⏳';
+  $('#espera-titulo').textContent = rechazada ? 'Cuenta no aprobada' : datos ? 'Completá tus datos de la legión' : 'Cuenta pendiente de aprobación';
   $('#espera-texto').textContent = rechazada
     ? 'Un administrador no aprobó esta cuenta. Si creés que es un error, hablá con un administrador de la legión.'
-    : 'Tu cuenta se creó bien. Un administrador tiene que aprobarla y vincularla con tu nombre en la legión antes de que puedas entrar al panel. Esta pantalla se actualiza sola cuando te aprueben.';
+    : datos ? 'Antes de pedir acceso al panel, declará tus datos in-game. Con esto un administrador te identifica y aprueba tu cuenta.'
+    : 'Tus datos se enviaron. Un administrador tiene que aprobar tu cuenta y vincularla con tu nombre en la legión antes de que puedas entrar al panel. Esta pantalla se actualiza sola cuando te aprueben.';
   $('#espera-cuenta').textContent = `${perfil.nombre || ''} · ${perfil.email || ''}`;
+  const f = $('#form-datos');
+  f.hidden = !datos;
+  $('#btn-espera-comprobar').hidden = datos;
+  $('#btn-espera-corregir').hidden = datos || perfil.estado !== 'pendiente';
+  $('#decl-resumen').hidden = datos || rechazada || !perfil.decl_clon;
+  if (!$('#decl-resumen').hidden) $('#decl-resumen').innerHTML = `
+    <div><span class="dato-etiqueta">Rango</span><div>${esc(perfil.decl_grado)}</div></div>
+    <div><span class="dato-etiqueta">Clon</span><div>${esc(perfil.decl_clon)}</div></div>
+    <div><span class="dato-etiqueta">Jedi</span><div>${esc(perfil.decl_jedi || '—')}</div></div>
+    <div><span class="dato-etiqueta">Discord ID</span><div class="mono">${esc(perfil.decl_discord)}</div></div>`;
+  if (datos) {
+    f.grado.innerHTML = '<option value="">— Elegí tu rango —</option>' + [...RANGOS_LEGION].reverse().map(g => `<option>${esc(g)}</option>`).join('');
+    f.grado.value = perfil.decl_grado || ''; f.clon.value = perfil.decl_clon || perfil.nombre || '';
+    f.jedi.value = perfil.decl_jedi || ''; f.discord.value = perfil.decl_discord || '';
+    $('#datos-error').hidden = true;
+    f.onsubmit = async ev => {
+      ev.preventDefault();
+      const d = { grado: f.grado.value, clon: f.clon.value.trim(), jedi: f.jedi.value.trim(), discord: f.discord.value.trim() };
+      if (!/^[0-9]{17,20}$/.test(d.discord)) { $('#datos-error').textContent = 'La Discord ID es un número de 17 a 20 cifras (no tu nombre de usuario).'; $('#datos-error').hidden = false; return; }
+      $('#btn-datos').disabled = true;
+      try { await api.completarDatosCuenta(d); corrigiendoDatos = false; aviso('Datos enviados. Ahora falta que un administrador apruebe tu cuenta.'); await comprobarEspera(false); }
+      catch (e) { $('#datos-error').textContent = e.message; $('#datos-error').hidden = false; }
+      finally { $('#btn-datos').disabled = false; }
+    };
+  }
   if (limpiarEspera) { try { limpiarEspera(); } catch {} limpiarEspera = null; }
-  if (!rechazada && !MODO_DEMO) limpiarEspera = api.suscribir('perfiles', () => comprobarEspera(false));
+  if (perfil.estado === 'pendiente' && !MODO_DEMO) limpiarEspera = api.suscribir('perfiles', () => comprobarEspera(false));
 }
+let corrigiendoDatos = false;
 async function comprobarEspera(conAviso = true) {
   try {
     const p = await api.sesionActual();
     if (!p) return mostrarAcceso();
-    if (p.estado && p.estado !== 'aprobada') { mostrarEspera(p); if (conAviso) aviso('Tu cuenta todavía no fue aprobada.'); return; }
+    if (p.estado && p.estado !== 'aprobada') { mostrarEspera(p); if (conAviso && p.estado === 'pendiente') aviso('Tu cuenta todavía no fue aprobada.'); return; }
     if (limpiarEspera) { try { limpiarEspera(); } catch {} limpiarEspera = null; }
     $('#pantalla-espera').hidden = true;
     await entrarApp(p);
@@ -286,12 +313,12 @@ function claveHoja(config, ref) {
 const fechaCorta = d => d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
 // Valores calculados de una fila. valor(clave) devuelve el texto guardado de una columna.
-function calcularFila(config, valor) {
+function calcularFila(config, valor, m) {
   const res = {};
   const v = k => numero(valor(k));
   const t = k => (k in res ? numero(res[k]) : v(k));
   for (const c of config.columnas) if (c.tipo === 'calculada') {
-    try { res[c.clave] = c.calc(v, t); } catch { res[c.clave] = ''; }
+    try { res[c.clave] = c.calc(v, t, m); } catch { res[c.clave] = ''; }
   }
   return res;
 }
@@ -356,7 +383,7 @@ async function vistaRegistro(cat) {
 
   const clave = (mid, col) => `${mid}|${col}`;
   const celdaDe = (f, c) => hoja.celdas.get(clave(hoja.filas[f].id, cols[c].clave));
-  const recalcular = f => { hoja.calc[f] = calcularFila(config, col => hoja.celdas.get(clave(hoja.filas[f].id, col))?.valor); };
+  const recalcular = f => { hoja.calc[f] = calcularFila(config, col => hoja.celdas.get(clave(hoja.filas[f].id, col))?.valor, hoja.filas[f]); };
   const textoCelda = (f, c) => cols[c].tipo === 'calculada' ? (hoja.calc[f]?.[cols[c].clave] ?? '') : (celdaDe(f, c)?.valor ?? '');
   const refActual = () => config.periodo ? estado.periodos[cat] : { anio: estado.anio, mes: estado.mes };
   const nombreHoja = () => {
@@ -402,6 +429,7 @@ async function vistaRegistro(cat) {
     pintar();
   }
 
+  const colInact = cols.findIndex(c => COLS_INACTIVIDAD.includes(c.clave));
   function pintar() {
     const hc = $('#hoja-cont');
     if (!hoja.filas.length) {
@@ -419,7 +447,7 @@ async function vistaRegistro(cat) {
       </tr></thead><tbody>`;
     hoja.filas.forEach((m, f) => {
       html += `<tr class="${m.activo ? '' : 'inactivo'}"><td class="fijo col-n">${f + 1}</td>
-        <td class="fijo col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${insigniaInactividad(hoja.inact?.get(m.id), m.nombre)}</td><td class="col-grado">${esc(m.grado)}</td>
+        <td class="fijo col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${colInact < 0 ? insigniaInactividad(hoja.inact?.get(m.id), m.nombre) : ''}</td><td class="col-grado">${esc(m.grado)}</td>
         ${fijas.map(x => `<td class="col-grado">${esc(valorFijo(m, x))}</td>`).join('')}`;
       cols.forEach((c, ci) => { html += `<td data-f="${f}" data-c="${ci}"></td>`; });
       html += `</tr>`;
@@ -444,7 +472,7 @@ async function vistaRegistro(cat) {
           ${cols.map(c => `<th class="${numCol(c) ? 'num' : ''}">${esc(c.nombre)}</th>`).join('')}
         </tr></thead><tbody>
         ${indices.length ? indices.map(f => { const m = hoja.filas[f];
-          return `<tr class="${m.activo ? '' : 'inactivo'}"><td class="col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${insigniaInactividad(hoja.inact?.get(m.id), m.nombre)}</td>
+          return `<tr class="${m.activo ? '' : 'inactivo'}"><td class="col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${colInact < 0 ? insigniaInactividad(hoja.inact?.get(m.id), m.nombre) : ''}</td>
             <td class="col-grado" title="${esc(ELITES[m[campo]] || '')}">${esc(config.secciones.columna ? m[campo] : m.grado)}</td>${cols.map((c, ci) => `<td data-f="${f}" data-c="${ci}"></td>`).join('')}</tr>`; }).join('')
           : `<tr><td colspan="${cols.length + 2}" class="vacio-chico">Sin miembros</td></tr>`}
         </tbody><tfoot><tr><td class="col-nombre">Total</td><td></td>
@@ -472,6 +500,10 @@ async function vistaRegistro(cat) {
     td.className = 'celda ' + (col.tipo === 'numero' ? 'num' : 'texto') + (r?.bloqueado ? ' bloqueada' : '') + (editable ? '' : ' solo-lectura');
     td.textContent = r?.valor ?? '';
     td.title = r?.bloqueado ? 'Celda bloqueada' : (col.tipo === 'texto' && r?.valor ? r.valor : '');
+    if (c === colInact) {
+      const m = hoja.filas[f], ins = insigniaInactividad(hoja.inact?.get(m.id), m.nombre);
+      if (ins) { td.insertAdjacentHTML('afterbegin', ins); td.classList.add('con-inact'); }
+    }
   }
 
   function pintarFila(f) { recalcular(f); cols.forEach((c, ci) => { if (c.tipo === 'calculada') pintarCelda(f, ci); }); }
@@ -758,7 +790,7 @@ async function vistaMiembros(cont) {
   const editable = puedeEditar();
   const opcionesCat = Object.entries(CATS_VISTA).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('');
   const opcionesCatForm = Object.entries(CATEGORIAS_MIEMBRO).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
-  const nCols = editable ? 10 : 9;
+  const nCols = editable ? 9 : 8;
 
   cont.innerHTML = `
     <div class="rejilla" id="resumen-miembros" style="margin-bottom:18px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
@@ -771,7 +803,7 @@ async function vistaMiembros(cont) {
     </div>
     <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
       <th>Rango</th><th>Nombre clon</th><th>Nombre Jedi</th><th>Icónico</th>
-      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th><th>Estado</th>${editable ? '<th></th>' : ''}
+      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th>${editable ? '<th></th>' : ''}
     </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
     <p class="ayuda">Clic en un SteamID o Discord para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
 
@@ -783,10 +815,9 @@ async function vistaMiembros(cont) {
       <td>${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : '<span class="tenue">No</span>'}</td>
       <td>${esc(CATS_VISTA[catVista(m)] || tituloCat(m.categoria))}</td>
       <td>${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : '<span class="tenue">No</span>'}</td>
-      <td class="steam">${m.steam_id ? `<button class="copiar mono" data-copiar="${esc(m.steam_id)}" title="Copiar">${esc(m.steam_id)}</button>` : '<span class="tenue">—</span>'}
+      <td class="steam">${m.steam_id ? `<button class="copiar mono" data-copiar="${esc(m.steam_id)}" data-tipo="SteamID" title="Copiar SteamID">${esc(m.steam_id)}</button>` : '<span class="tenue">—</span>'}
         ${m.steam_id64 ? `<a class="sub mono" href="https://steamcommunity.com/profiles/${esc(m.steam_id64)}" target="_blank" rel="noopener noreferrer">${esc(m.steam_id64)}</a>` : ''}</td>
-      <td>${m.discord_id ? `<button class="copiar mono" data-copiar="${esc(m.discord_id)}" title="Copiar">${esc(m.discord_id)}</button>` : '<span class="tenue">—</span>'}</td>
-      <td><span class="etiqueta ${m.activo ? 'admin' : ''}">${m.activo ? 'Activo' : 'Inactivo'}</span></td>
+      <td>${m.discord_id ? `<button class="copiar mono" data-copiar="${esc(m.discord_id)}" data-tipo="Discord ID" title="Copiar Discord ID">${esc(m.discord_id)}</button>` : '<span class="tenue">—</span>'}</td>
       ${editable ? `<td class="acciones"><button class="btn chico" data-editar="${m.id}">Editar</button>
         <button class="btn chico peligro" data-borrar="${m.id}">Borrar</button></td>` : ''}
     </tr>`;
@@ -927,7 +958,7 @@ async function vistaMiembros(cont) {
   $('#cuerpo-miembros').onclick = async ev => {
     const cp = ev.target.closest('[data-copiar]');
     if (cp) {
-      try { await navigator.clipboard.writeText(cp.dataset.copiar); aviso('SteamID copiado.'); } catch { aviso('No se pudo copiar.', 'error'); }
+      try { await navigator.clipboard.writeText(cp.dataset.copiar); aviso(`${cp.dataset.tipo || 'Dato'} copiado.`); } catch { aviso('No se pudo copiar.', 'error'); }
       return;
     }
     const ed = ev.target.closest('[data-editar]'), bo = ev.target.closest('[data-borrar]');
@@ -961,6 +992,11 @@ async function vistaCalendario(cont) {
     <div class="leyenda">${TIPOS_EVENTO.map(t => `<span><i class="punto" style="background:${t.color}"></i>${esc(t.nombre)}</span>`).join('')}</div>`;
 
   let eventos = [];
+  const miembrosCal = await api.listarMiembros().catch(() => []);
+  const porIdCal = new Map(miembrosCal.map(m => [m.id, m]));
+  const candidatosCal = ordenarMiembros(miembrosCal.filter(m => m.activo));
+  const nombreOrg = id => { const m = porIdCal.get(id); return m ? `${m.grado} ${m.nombre}` : '¿?'; };
+  const resumirDesc = (t, n = 90) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; };
 
   async function cargar() {
     const { anio, mes } = estado.cal;
@@ -975,7 +1011,11 @@ async function vistaCalendario(cont) {
       const evs = eventos.filter(e => e.fecha === iso);
       return `<div class="cal-dia ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${editable ? 'puede' : ''}" data-fecha="${iso}">
         <span class="cal-num">${d.getDate()}</span>
-        ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)}" data-evento="${e.id}" title="${esc((e.hora ? e.hora + ' · ' : '') + e.titulo)}">${e.hora ? esc(e.hora) + ' ' : ''}${esc(e.titulo)}</button>`).join('')}
+        ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)}" data-evento="${e.id}"
+            title="${esc((e.hora ? e.hora + ' · ' : '') + e.titulo + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
+            <span class="cal-ev-titulo">${e.hora ? `<span class="cal-ev-hora">${esc(e.hora)}</span> ` : ''}“${esc(e.titulo)}”</span>
+            ${e.descripcion ? `<span class="cal-ev-desc">${esc(resumirDesc(e.descripcion))}</span>` : ''}
+            ${(e.organizadores || []).length ? `<span class="cal-ev-org">${esc(e.organizadores.map(id => porIdCal.get(id)?.nombre || '¿?').join(', '))}</span>` : ''}</button>`).join('')}
       </div>`;
     }).join('');
   }
@@ -986,7 +1026,8 @@ async function vistaCalendario(cont) {
     abrirModal(soloVer ? e.titulo : (e.id ? 'Editar evento' : 'Nuevo evento'), soloVer ? `
       <p class="dato-etiqueta" style="margin:0 0 6px"><i class="punto" style="display:inline-block;background:${colorTipo(e.tipo)}"></i> ${esc(e.tipo)}</p>
       <p style="margin:0 0 12px"><strong>${esc(new Date(e.fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</strong>${e.hora ? ' · ' + esc(e.hora) : ''}</p>
-      <p style="white-space:pre-wrap;line-height:1.5;margin:0 0 16px">${esc(e.descripcion) || '<span style="color:var(--texto-3)">Sin descripción.</span>'}</p>
+      <p style="white-space:pre-wrap;line-height:1.5;margin:0 0 12px">${esc(e.descripcion) || '<span style="color:var(--texto-3)">Sin descripción.</span>'}</p>
+      ${(e.organizadores || []).length ? `<p style="margin:0 0 16px"><span class="dato-etiqueta">Programado por</span><br>${e.organizadores.map(id => `<span class="chip-acomp">${esc(nombreOrg(id))}</span>`).join(' ')}</p>` : ''}
       <div class="modal-pie"><button class="btn" data-cancelar>Cerrar</button></div>` : `
       <form id="form-evento">
         <label class="campo"><span>Título</span><input name="titulo" required maxlength="100" value="${esc(e.titulo)}"></label>
@@ -995,7 +1036,14 @@ async function vistaCalendario(cont) {
           <label class="campo"><span>Hora</span><input name="hora" type="time" value="${esc(e.hora)}"></label>
         </div>
         <label class="campo"><span>Tipo</span><select name="tipo">${opciones}</select></label>
-        <label class="campo"><span>Descripción</span><textarea name="descripcion" maxlength="1000">${esc(e.descripcion)}</textarea></label>
+        <div class="campo"><span>¿Quiénes la programan? <small class="tenue">(podés sumar a quienes la hacen con vos)</small></span>
+          <div class="selector-acomp" id="selector-org">
+            <div class="chips-acomp" id="chips-org"></div>
+            <input id="buscar-org" placeholder="Agregar a alguien: nombre, rango o Discord…" autocomplete="off">
+          </div>
+          <div class="resultados-acomp" id="resultados-org" hidden></div>
+        </div>
+        <label class="campo"><span>Descripción</span><textarea name="descripcion" maxlength="1000" placeholder="¿De qué se trata? Se muestra en el calendario.">${esc(e.descripcion)}</textarea></label>
         <div class="modal-pie">
           ${e.id ? '<button type="button" class="btn peligro izq" data-borrar>Borrar</button>' : ''}
           <button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn primario">Guardar</button>
@@ -1003,11 +1051,47 @@ async function vistaCalendario(cont) {
       </form>`, c => {
       $('[data-cancelar]', c).onclick = cerrarModal;
       if (soloVer) return;
+      // Organizadores: arranca con quien carga el evento; se pueden sumar más
+      const orgs = [...(e.organizadores || [])];
+      const buscar = $('#buscar-org', c), res = $('#resultados-org', c);
+      let marcado = 0;
+      const texto = m => `${m.grado} ${m.nombre} ${m.nombre_jedi || ''} ${m.discord_id || ''} ${m.elite || ''}`.toLowerCase();
+      const pintarOrgs = () => {
+        $('#chips-org', c).innerHTML = orgs.map(id => `<span class="chip-acomp">${esc(nombreOrg(id))}${id === estado.perfil.miembro_id ? ' <small>(vos)</small>' : ''}<button type="button" data-quitar="${id}" aria-label="Quitar">×</button></span>`).join('');
+      };
+      const coincid = () => { const q = buscar.value.trim().toLowerCase();
+        return candidatosCal.filter(m => !orgs.includes(m.id) && (!q || q.split(/\s+/).every(p => texto(m).includes(p)))).slice(0, 40); };
+      const pintarRes = () => {
+        const l = coincid(); marcado = Math.min(marcado, Math.max(l.length - 1, 0)); res.hidden = false;
+        res.innerHTML = l.length ? l.map((m, i) => `<div class="res-acomp ${i === marcado ? 'marcado' : ''}" data-elegir="${m.id}">
+          <span class="res-rango">${esc(m.grado)}</span><span class="res-nombre">${esc(m.nombre)}</span>${ELITES[m.elite] ? `<span class="etiqueta admin">${esc(m.elite)}</span>` : ''}</div>`).join('')
+          : '<div class="res-vacio">Nadie coincide con la búsqueda.</div>';
+        $('.res-acomp.marcado', res)?.scrollIntoView({ block: 'nearest' });
+      };
+      const elegir = id => { if (!orgs.includes(id)) orgs.push(id); buscar.value = ''; marcado = 0; pintarOrgs(); pintarRes(); buscar.focus(); };
+      buscar.onfocus = pintarRes;
+      buscar.oninput = () => { marcado = 0; pintarRes(); };
+      buscar.onblur = () => setTimeout(() => { res.hidden = true; }, 120);
+      buscar.onkeydown = ev => {
+        const l = coincid();
+        if (ev.key === 'ArrowDown') { ev.preventDefault(); marcado = Math.min(marcado + 1, l.length - 1); pintarRes(); }
+        else if (ev.key === 'ArrowUp') { ev.preventDefault(); marcado = Math.max(marcado - 1, 0); pintarRes(); }
+        else if (ev.key === 'Enter') { ev.preventDefault(); if (!res.hidden && l[marcado]) elegir(l[marcado].id); }
+        else if (ev.key === 'Escape') { ev.stopPropagation(); res.hidden = true; }
+        else if (ev.key === 'Backspace' && !buscar.value && orgs.length) { orgs.pop(); pintarOrgs(); }
+      };
+      res.onmousedown = ev => { const r = ev.target.closest('[data-elegir]'); if (!r) return; ev.preventDefault(); elegir(+r.dataset.elegir); };
+      $('#selector-org', c).onclick = ev => {
+        const q = ev.target.closest('[data-quitar]');
+        if (q) { orgs.splice(orgs.indexOf(+q.dataset.quitar), 1); pintarOrgs(); }
+        buscar.focus();
+      };
+      pintarOrgs();
       $('#form-evento', c).onsubmit = async ev => {
         ev.preventDefault(); const f = ev.target;
         try {
           await api.guardarEvento({ ...(e.id ? { id: e.id } : {}), titulo: f.titulo.value.trim(), fecha: f.fecha.value,
-            hora: f.hora.value, tipo: f.tipo.value, descripcion: f.descripcion.value.trim() });
+            hora: f.hora.value, tipo: f.tipo.value, descripcion: f.descripcion.value.trim(), organizadores: orgs });
           cerrarModal(); aviso('Evento guardado.'); await cargar();
         } catch (er) { fallo(er); }
       };
@@ -1019,7 +1103,8 @@ async function vistaCalendario(cont) {
     });
   }
 
-  const nuevo = fecha => ({ titulo: '', fecha, hora: '', tipo: TIPOS_EVENTO[0]?.nombre || '', descripcion: '' });
+  const nuevo = fecha => ({ titulo: '', fecha, hora: '', tipo: TIPOS_EVENTO[0]?.nombre || '', descripcion: '',
+    organizadores: estado.perfil.miembro_id ? [estado.perfil.miembro_id] : [] });
   $$('[data-mov]', cont).forEach(b => b.onclick = () => {
     const d = new Date(estado.cal.anio, estado.cal.mes - 1 + +b.dataset.mov, 1);
     estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo);
@@ -1402,7 +1487,7 @@ async function vistaPerfil(cont) {
   }
   for (const h of hojas.values()) {
     const cfg = CATEGORIAS[h.categoria];
-    h.calc = cfg ? calcularFila(cfg, c => h.vals[c]) : {};
+    h.calc = cfg ? calcularFila(cfg, c => h.vals[c], m) : {};
   }
 
   const hoy = new Date();
@@ -1957,12 +2042,39 @@ function verInactividad(avisos, nombre) {
     <div class="modal-pie"><a class="btn" href="#/inactividad">Ir a Informar inactividad</a><button type="button" class="btn primario" data-cerrar-inact>Cerrar</button></div>`,
   c => { $('[data-cerrar-inact]', c).onclick = cerrarModal; $('a[href="#/inactividad"]', c).onclick = () => cerrarModal(); });
 }
+const COLS_INACTIVIDAD = ['aclaraciones', 'inactividad'];
+function cerrarMenuInact() { $$('.menu-inact').forEach(x => x.remove()); }
+function menuInactividad(b, avisos, nombre) {
+  cerrarMenuInact();
+  const menu = document.createElement('div');
+  menu.className = 'menu-inact'; menu.setAttribute('role', 'menu');
+  menu.innerHTML = avisos.map(x => `
+    <div class="menu-inact-cab">${esc(TIPOS_INACTIVIDAD[x.tipo]?.nombre || x.tipo)} · ${fechaAR(x.desde)} al ${fechaAR(x.hasta)}</div>
+    <button type="button" role="menuitem" data-inact-panel="${x.id}"><span>▤</span> Ver informe en la base de datos</button>
+    <a role="menuitem" href="${esc(x.link)}" target="_blank" rel="noopener noreferrer"><span>↗</span> Ver aviso en Discord</a>`).join('');
+  document.body.appendChild(menu);
+  const r = b.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+  menu.style.top = (r.bottom + h + 8 > innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + 'px';
+  menu.onclick = ev => {
+    const p = ev.target.closest('[data-inact-panel]');
+    if (p) { cerrarMenuInact(); verInactividad([INACT_VISTAS.get(+p.dataset.inactPanel)], nombre); }
+    else if (ev.target.closest('a')) cerrarMenuInact();
+  };
+  $('button', menu)?.focus();
+}
 document.addEventListener('click', ev => {
-  const b = ev.target.closest?.('[data-ver-inact]'); if (!b) return;
+  if (ev.target.closest?.('.menu-inact')) return;
+  const b = ev.target.closest?.('[data-ver-inact]');
+  cerrarMenuInact();
+  if (!b) return;
   ev.preventDefault(); ev.stopPropagation();
   const avisos = b.dataset.verInact.split(',').map(id => INACT_VISTAS.get(+id)).filter(Boolean);
-  if (avisos.length) verInactividad(avisos, b.dataset.nombre);
+  if (avisos.length) menuInactividad(b, avisos, b.dataset.nombre);
 });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') cerrarMenuInact(); });
+window.addEventListener('hashchange', cerrarMenuInact);
+document.addEventListener('scroll', cerrarMenuInact, true);
 
 /* ============================================================ USUARIOS */
 async function vistaUsuarios(cont) {
@@ -1978,14 +2090,14 @@ async function vistaUsuarios(cont) {
     <div class="tarjeta" style="margin-bottom:18px">
       <label class="interruptor"><input type="checkbox" id="modo-abierto" ${estado.ajustes.modo_abierto === true ? 'checked' : ''}>
         <span><strong>Modo abierto</strong><br><span style="color:var(--texto-2)">Mientras esté activo, cualquier cuenta registrada puede editar tablas, miembros, calendario y reglamento.
-        Desactivalo cuando quieras que solo los Administradores editen (los Usuarios quedan en solo lectura).</span></span></label>
+        Desactivalo cuando quieras que solo las cuentas con ${esc(nombreRango(RANGO_ADMIN))} editen (el resto queda en solo lectura).</span></span></label>
     </div>
     <div class="envoltorio-tabla"><table class="datos"><thead><tr><th>Cuenta</th><th>Email</th><th>Rango</th><th>Miembro vinculado</th><th>Registrado</th></tr></thead>
     <tbody id="cuerpo-usuarios"></tbody></table></div>
     <p class="ayuda">Vinculá cada cuenta con su miembro de la legión para que pueda cargar actividades en <a href="#/actividad">Registrar actividad</a>. Un miembro solo puede estar vinculado a una cuenta.
     Los rangos nuevos se agregan en <code>js/config.js</code> (RANGOS).</p>`;
 
-  const opciones = r => Object.entries(RANGOS).map(([n, t]) => `<option value="${n}" ${+n === r ? 'selected' : ''}>${n} · ${esc(t)}</option>`).join('');
+  const opciones = r => Object.entries(RANGOS).filter(([n]) => +n > 0).map(([n, t]) => `<option value="${n}" ${+n === r ? 'selected' : ''}>${n} · ${esc(t)}</option>`).join('');
   const opcionesMiembro = p => `<option value="">— Sin vincular —</option>` + vinculables.map(m => {
     const otro = perfiles.find(x => x.id !== p.id && x.miembro_id === m.id);
     return `<option value="${m.id}" ${p.miembro_id === m.id ? 'selected' : ''} ${otro ? 'disabled' : ''}>${esc(m.grado)} ${esc(m.nombre)}${otro ? ` — cuenta ${esc(otro.nombre)}` : ''}</option>`;
@@ -2014,9 +2126,9 @@ async function vistaUsuarios(cont) {
       return;
     }
     const p = perfiles.find(x => String(x.id) === sel.dataset.rango); const nuevo = +sel.value;
-    const admins = perfiles.filter(x => x.rango >= 2).length;
-    if (p.rango >= 2 && nuevo < 2 && admins <= 1) { aviso('Tiene que quedar al menos un Administrador.', 'error'); sel.value = p.rango; return; }
-    if (p.id === estado.perfil.id && nuevo < 2 && !await confirmar('Quitarte el rango', 'Vas a dejar de ser Administrador y perderás acceso a esta sección.', 'Continuar')) { sel.value = p.rango; return; }
+    const admins = perfiles.filter(x => aprobada(x) && x.rango >= RANGO_ADMIN).length;
+    if (p.rango >= RANGO_ADMIN && nuevo < RANGO_ADMIN && admins <= 1) { aviso(`Tiene que quedar al menos una cuenta con ${nombreRango(RANGO_ADMIN)}.`, 'error'); sel.value = p.rango; return; }
+    if (p.id === estado.perfil.id && nuevo < RANGO_ADMIN && !await confirmar('Quitarte el rango', `Vas a dejar de tener ${nombreRango(RANGO_ADMIN)} y perderás acceso a esta sección.`, 'Continuar')) { sel.value = p.rango; return; }
     try {
       await api.cambiarRango(p.id, nuevo); p.rango = nuevo; aviso(`${p.nombre}: ${nombreRango(nuevo)}.`);
       if (p.id === estado.perfil.id) { estado.perfil.rango = nuevo; entrarApp(estado.perfil); }
@@ -2025,35 +2137,54 @@ async function vistaUsuarios(cont) {
   // ---- Cuentas pendientes de aprobación
   const normNombre = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const sugerido = p => {
-    const n = normNombre(p.nombre);
-    if (!n) return null;
-    const libres = activos.filter(m => !perfiles.some(x => x.miembro_id === m.id));
-    return libres.find(m => normNombre(m.nombre) === n || normNombre(m.nombre_iconico) === n)
-        || (n.length >= 4 ? libres.find(m => normNombre(m.nombre).startsWith(n) || n.startsWith(normNombre(m.nombre))) : null) || null;
+    const libres = activos.filter(m => !perfiles.some(x => x.id !== p.id && x.miembro_id === m.id && aprobada(x)));
+    if (p.decl_discord) { const m = libres.find(m => String(m.discord_id || '').trim() === p.decl_discord); if (m) return m; }
+    for (const nombre of [p.decl_clon, p.nombre]) {
+      const n = normNombre(nombre); if (!n) continue;
+      const m = libres.find(m => normNombre(m.nombre) === n || normNombre(m.nombre_iconico) === n)
+        || (n.length >= 4 ? libres.find(m => normNombre(m.nombre).startsWith(n) || n.startsWith(normNombre(m.nombre))) : null);
+      if (m) return m;
+    }
+    return null;
   };
-  const elegidos = new Map();   // perfilId -> { miembro, grado, rango }
+  // Rango de la web que corresponde según el rango y la élite en la legión (se puede cambiar antes de aprobar)
+  const rangoWebSugerido = (grado, elite) => {
+    const g = normRango(grado), cat = categoriaDeRango(grado);
+    if (g === 'MRL') return 7;
+    if (cat === 'comandantes') return 6;
+    if (/^CPT/.test(g)) return 5;
+    if (cat === 'oficiales') return 4;
+    if (cat === 'suboficiales') return 3;
+    if (elite) return 2;
+    return 1;
+  };
+  const elegidos = new Map();   // perfilId -> { miembro ('' | id | 'nuevo'), grado, rango }
   function datosDe(p) {
     if (!elegidos.has(p.id)) {
       const m = sugerido(p);
-      elegidos.set(p.id, { miembro: m?.id || '', grado: m?.grado || '', rango: 1 });
+      const grado = m?.grado || (RANGOS_LEGION.includes(p.decl_grado) ? p.decl_grado : '');
+      elegidos.set(p.id, { miembro: m ? m.id : (p.decl_clon ? 'nuevo' : ''), grado, rango: rangoWebSugerido(grado, m?.elite) });
     }
     return elegidos.get(p.id);
   }
   function pintarPendientes() {
     const pend = perfiles.filter(p => p.estado === 'pendiente');
     const rech = perfiles.filter(p => p.estado === 'rechazada');
+    const sinDatos = perfiles.filter(p => p.estado === 'datos');
     const fecha = p => p.creado_en ? new Date(p.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '';
     const tarjeta = p => {
       const d = datosDe(p);
-      const optsM = `<option value="">— Elegí su nombre en la legión —</option>` + activos.map(m => {
+      const optsM = `<option value="">— Elegí su nombre en la legión —</option>`
+        + (p.decl_clon ? `<option value="nuevo" ${d.miembro === 'nuevo' ? 'selected' : ''}>➕ Agregar como miembro nuevo: ${esc(p.decl_clon)}</option>` : '') + activos.map(m => {
         const otro = perfiles.find(x => x.id !== p.id && x.miembro_id === m.id && aprobada(x));
         return `<option value="${m.id}" ${+d.miembro === m.id ? 'selected' : ''} ${otro ? 'disabled' : ''}>${esc(m.grado)} ${esc(m.nombre)}${m.elite ? ` (${esc(m.elite)})` : ''}${otro ? ` — ya es de ${esc(otro.nombre)}` : ''}</option>`;
       }).join('');
       const optsG = `<option value="">—</option>` + [...RANGOS_LEGION].reverse().map(g => `<option ${g === d.grado ? 'selected' : ''}>${esc(g)}</option>`).join('');
-      const optsR = Object.entries(RANGOS).map(([n, t]) => `<option value="${n}" ${+n === +d.rango ? 'selected' : ''}>${esc(t)}</option>`).join('');
+      const optsR = Object.entries(RANGOS).filter(([n]) => +n > 0).map(([n, t]) => `<option value="${n}" ${+n === +d.rango ? 'selected' : ''}>${esc(t)}</option>`).join('');
       return `<div class="pendiente" data-pend="${p.id}">
         <div class="pend-quien"><span class="avatar chico">${esc((p.nombre || '?').trim().charAt(0).toUpperCase())}</span>
-          <div><strong>${esc(p.nombre)}</strong><small>${esc(p.email)} · se registró el ${fecha(p)}</small></div></div>
+          <div><strong>${esc(p.nombre)}</strong><small>${esc(p.email)} · se registró el ${fecha(p)}</small>
+          ${p.decl_clon ? `<small class="decl">Declaró: <b>${esc(p.decl_grado)}</b> · clon <b>${esc(p.decl_clon)}</b>${p.decl_jedi ? ` · Jedi <b>${esc(p.decl_jedi)}</b>` : ''} · Discord <b class="mono">${esc(p.decl_discord)}</b></small>` : ''}</div></div>
         <label class="campo"><span>Nombre en la legión</span><select class="entrada" data-campo="miembro">${optsM}</select></label>
         <label class="campo"><span>Rango en la legión</span><select class="entrada" data-campo="grado" ${d.miembro ? '' : 'disabled'}>${optsG}</select></label>
         <label class="campo"><span>Permiso en el panel</span><select class="entrada" data-campo="rango">${optsR}</select></label>
@@ -2065,9 +2196,12 @@ async function vistaUsuarios(cont) {
     $('#pendientes').innerHTML = `
       <div class="pend-cab"><h3>Cuentas pendientes de aprobación</h3>${pend.length ? `<span class="menu-contador">${pend.length}</span>` : ''}</div>
       ${pend.length
-        ? `<p class="ayuda" style="margin-top:0">Estas cuentas se registraron pero no pueden entrar al panel hasta que las apruebes. Elegí a qué miembro de la legión corresponde cada una y su rango; si el rango no coincide con el que figura, se actualiza en Miembros de la legión.</p>
+        ? `<p class="ayuda" style="margin-top:0">Estas cuentas se registraron pero no pueden entrar al panel hasta que las apruebes. Revisá lo que declararon, elegí a qué miembro de la legión corresponde cada una (o agregalo como miembro nuevo) y su rango; si el rango no coincide con el que figura, se actualiza en Miembros de la legión.</p>
            ${pend.map(tarjeta).join('')}`
         : '<p class="vacio-chico">No hay cuentas esperando aprobación.</p>'}
+      ${sinDatos.length ? `<details class="pend-rechazadas"><summary>Todavía completando sus datos in-game (${sinDatos.length})</summary>
+        ${sinDatos.map(p => `<div class="pend-rech"><span><strong>${esc(p.nombre)}</strong> <small>${esc(p.email)} · ${fecha(p)}</small></span>
+          <button class="btn chico" data-accion-sd="rechazar" data-id="${p.id}">Rechazar</button></div>`).join('')}</details>` : ''}
       ${rech.length ? `<details class="pend-rechazadas"><summary>Cuentas rechazadas (${rech.length})</summary>
         ${rech.map(p => `<div class="pend-rech"><span><strong>${esc(p.nombre)}</strong> <small>${esc(p.email)} · ${fecha(p)}</small></span>
           <button class="btn chico" data-reabrir="${p.id}">Volver a pendientes</button></div>`).join('')}</details>` : ''}`;
@@ -2077,13 +2211,23 @@ async function vistaUsuarios(cont) {
     const caja = ev.target.closest('[data-pend]'); if (!caja) return;
     const p = perfiles.find(x => String(x.id) === caja.dataset.pend), d = datosDe(p), campo = ev.target.dataset.campo;
     if (campo === 'miembro') {
-      d.miembro = ev.target.value ? +ev.target.value : '';
-      d.grado = miembros.find(m => m.id === d.miembro)?.grado || '';
+      const v = ev.target.value;
+      d.miembro = v === 'nuevo' ? 'nuevo' : v ? +v : '';
+      const m = miembros.find(m => m.id === d.miembro);
+      d.grado = m?.grado || (RANGOS_LEGION.includes(p.decl_grado) ? p.decl_grado : '');
+      d.rango = rangoWebSugerido(d.grado, m?.elite);
       pintarPendientes();
-    } else if (campo === 'grado') d.grado = ev.target.value;
+    } else if (campo === 'grado') { d.grado = ev.target.value; d.rango = rangoWebSugerido(d.grado, miembros.find(m => m.id === d.miembro)?.elite); pintarPendientes(); }
     else if (campo === 'rango') d.rango = +ev.target.value;
   };
   $('#pendientes').onclick = async ev => {
+    const sd = ev.target.closest('[data-accion-sd]');
+    if (sd) {
+      const p = perfiles.find(x => String(x.id) === sd.dataset.id);
+      if (!await confirmar('Rechazar cuenta', `¿Rechazar la cuenta de ${p.nombre} (${p.email})? No va a poder entrar al panel.`, 'Rechazar')) return;
+      try { await api.cambiarEstadoCuenta(p.id, 'rechazada'); p.estado = 'rechazada'; aviso(`Cuenta de ${p.nombre} rechazada.`); pintar(); } catch (e) { fallo(e); }
+      return;
+    }
     const reabrir = ev.target.closest('[data-reabrir]');
     if (reabrir) {
       const p = perfiles.find(x => String(x.id) === reabrir.dataset.reabrir);
@@ -2099,19 +2243,30 @@ async function vistaUsuarios(cont) {
       catch (e) { fallo(e); }
       return;
     }
-    const m = miembros.find(x => x.id === d.miembro);
-    if (!m) return aviso('Elegí a qué miembro de la legión corresponde la cuenta.', 'error');
+    const esNuevo = d.miembro === 'nuevo';
+    let m = esNuevo ? null : miembros.find(x => x.id === d.miembro);
+    if (!esNuevo && !m) return aviso('Elegí a qué miembro de la legión corresponde la cuenta.', 'error');
     if (!d.grado) return aviso('Elegí el rango en la legión.', 'error');
-    const cambiaGrado = normRango(d.grado) !== normRango(m.grado);
-    const texto = `${p.nombre} va a poder entrar al panel como ${nombreRango(d.rango)}, vinculada a ${d.grado} ${m.nombre}.`
-      + (cambiaGrado ? ` El rango de ${m.nombre} en la legión cambia de ${m.grado || '—'} a ${d.grado}.` : '');
+    const cambiaGrado = !esNuevo && normRango(d.grado) !== normRango(m.grado);
+    const texto = esNuevo
+      ? `Se agrega a ${d.grado} ${p.decl_clon} como miembro nuevo de la legión y ${p.nombre} va a poder entrar al panel como ${nombreRango(d.rango)}.`
+      : `${p.nombre} va a poder entrar al panel como ${nombreRango(d.rango)}, vinculada a ${d.grado} ${m.nombre}.`
+        + (cambiaGrado ? ` El rango de ${m.nombre} en la legión cambia de ${m.grado || '—'} a ${d.grado}.` : '');
     if (!await confirmar('Aprobar cuenta', texto, 'Aprobar')) return;
     b.disabled = true;
     try {
-      if (cambiaGrado) {
-        const cat = categoriaDeRango(d.grado);
-        const actualizado = await api.guardarMiembro({ id: m.id, grado: d.grado, ...(cat ? { categoria: cat } : {}) });
-        Object.assign(m, actualizado || { grado: d.grado, ...(cat ? { categoria: cat } : {}) });
+      const cat = categoriaDeRango(d.grado);
+      if (esNuevo) {
+        m = await api.guardarMiembro({ nombre: p.decl_clon, grado: d.grado, categoria: cat || 'soldados', nombre_jedi: p.decl_jedi || '',
+          discord_id: p.decl_discord || '', activo: true });
+        miembros.push(m); activos.push(m);
+      } else {
+        // Completa los datos que el miembro no tenía con lo que declaró
+        const extra = {};
+        if (!m.discord_id && p.decl_discord) extra.discord_id = p.decl_discord;
+        if (!m.nombre_jedi && p.decl_jedi) extra.nombre_jedi = p.decl_jedi;
+        if (cambiaGrado) { extra.grado = d.grado; if (cat) extra.categoria = cat; }
+        if (Object.keys(extra).length) Object.assign(m, (await api.guardarMiembro({ id: m.id, ...extra })) || extra);
       }
       await api.aprobarCuenta(p.id, { miembro_id: m.id, rango: d.rango });
       Object.assign(p, { estado: 'aprobada', miembro_id: m.id, rango: d.rango });
@@ -2146,6 +2301,7 @@ async function arrancar() {
     await api.salir(); location.hash = ''; mostrarAcceso();
   };
   $('#btn-espera-comprobar').onclick = () => comprobarEspera(true);
+  $('#btn-espera-corregir').onclick = () => { corrigiendoDatos = true; comprobarEspera(false); };
   $('#btn-menu').onclick = () => $('#app').classList.toggle('menu-abierto');
   $('#cortina').onclick = () => $('#app').classList.remove('menu-abierto');
   $('#modal-cerrar').onclick = cerrarModal;

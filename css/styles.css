@@ -290,7 +290,13 @@ table.datos { width: 100%; border-collapse: collapse; background: var(--superfic
 .cal-dia.puede:hover { box-shadow: inset 0 0 0 2px var(--acento-suave); }
 .cal-num { font-size: 12.5px; font-weight: 600; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
 .cal-dia.hoy .cal-num { background: var(--acento); color: #fff; }
-.cal-evento { font-size: 12px; padding: 3px 6px; border-radius: 5px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; border: 0; text-align: left; }
+.cal-evento { font-size: 12px; padding: 4px 6px; border-radius: 5px; color: #fff; overflow: hidden; cursor: pointer; border: 0; text-align: left;
+  display: flex; flex-direction: column; gap: 1px; font-family: inherit; line-height: 1.3; }
+.cal-ev-titulo { font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cal-ev-hora { font-weight: 700; opacity: .85; }
+.cal-ev-desc { font-size: 11px; opacity: .92; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cal-ev-org { font-size: 10.5px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-ev-org::before { content: '👤 '; }
 .leyenda { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 12.5px; color: var(--texto-2); }
 .leyenda span { display: inline-flex; align-items: center; gap: 6px; }
 
@@ -382,6 +388,24 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .chip-yo strong { color: var(--texto); }
 .fila-campos.tres { grid-template-columns: 2fr 1.2fr 1fr; }
 .historial-actividad { min-width: 0; }
+/* Menú de la marca de inactividad */
+.menu-inact { position: fixed; z-index: 60; min-width: 250px; max-width: 320px; background: var(--superficie); border: 1px solid var(--borde-fuerte);
+  border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 4px; font-size: 13.5px; }
+.menu-inact-cab { padding: 7px 10px 4px; font-size: 11.5px; color: var(--texto-3); font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+.menu-inact button, .menu-inact a { display: flex; gap: 8px; align-items: center; width: 100%; padding: 8px 10px; border: 0; background: none;
+  color: var(--texto); font: inherit; text-align: left; border-radius: 6px; cursor: pointer; text-decoration: none; }
+.menu-inact button:hover, .menu-inact a:hover, .menu-inact button:focus-visible { background: var(--superficie-2); outline: none; }
+.menu-inact span { width: 16px; text-align: center; color: var(--texto-3); }
+td.con-inact { white-space: nowrap; }
+td.con-inact .insignia-inact { margin-left: 0; margin-right: 6px; }
+
+/* Datos in-game al registrarse */
+.form-datos { text-align: left; margin-bottom: 14px; }
+.ayuda-campo { display: block; color: var(--texto-3); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+.decl-resumen { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; background: var(--superficie-2);
+  border: 1px solid var(--borde); border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 13.5px; overflow-wrap: anywhere; }
+.pend-quien small.decl { color: var(--texto-2); margin-top: 2px; }
+
 /* Cuentas pendientes de aprobación */
 .menu-contador { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--acento);
   color: #fff; font-size: 11.5px; font-weight: 700; display: inline-grid; place-items: center; }

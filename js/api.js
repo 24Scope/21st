@@ -169,6 +169,9 @@ function crearApiSupabase() {
         aprobado_por: s.session?.user.id || null, aprobado_en: new Date().toISOString() }).eq('id', perfilId));
     },
     async cambiarEstadoCuenta(perfilId, estado) { ok(await sb.from('perfiles').update({ estado }).eq('id', perfilId)); },
+    async completarDatosCuenta(d) {
+      return ok(await sb.rpc('completar_datos_cuenta', { p_grado: d.grado, p_clon: d.clon, p_jedi: d.jedi, p_discord: d.discord }));
+    },
 
     suscribir(tabla, alCambiar) {
       const canal = sb.channel('rt-' + tabla + '-' + Math.random().toString(36).slice(2))
@@ -213,10 +216,10 @@ function crearApiDemo() {
     return u || null;
   }
   const perfil = u => u && ({ id: u.id, nombre: u.nombre, email: u.email, rango: u.rango, creado_en: u.creado_en, miembro_id: u.miembro_id || null,
-    estado: u.estado || 'aprobada' });
-  const puedeEditar = db => { const u = usuarioActual(db); return !!u && (u.rango >= 2 || db.ajustes.modo_abierto === true); };
+    estado: u.estado || 'aprobada', decl_grado: u.decl_grado || null, decl_clon: u.decl_clon || null, decl_jedi: u.decl_jedi || null, decl_discord: u.decl_discord || null });
+  const puedeEditar = db => { const u = usuarioActual(db); return !!u && (u.rango >= 8 || db.ajustes.modo_abierto === true); };
   const exigirEdicion = db => { if (!puedeEditar(db)) throw new Error('No tenés permiso para hacer esto.'); };
-  const exigirAdmin = db => { const u = usuarioActual(db); if (!u || u.rango < 2 || (u.estado && u.estado !== 'aprobada')) throw new Error('No tenés permiso para hacer esto.'); };
+  const exigirAdmin = db => { const u = usuarioActual(db); if (!u || u.rango < 8 || (u.estado && u.estado !== 'aprobada')) throw new Error('No tenés permiso para hacer esto.'); };
 
   return {
     async registrar(email, pass, nombre) {
@@ -225,7 +228,7 @@ function crearApiDemo() {
       if (db.usuarios.some(u => u.email === email)) throw new Error('Ya existe una cuenta con ese email.');
       if (pass.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres.');
       const u = { id: id(db), email, pass, nombre: nombre || email.split('@')[0],
-        rango: db.usuarios.length ? 1 : 2, estado: db.usuarios.length ? 'pendiente' : 'aprobada', creado_en: new Date().toISOString() };
+        rango: db.usuarios.length ? 0 : 8, estado: db.usuarios.length ? 'datos' : 'aprobada', creado_en: new Date().toISOString() };
       db.usuarios.push(u); escribir(db);
       try { localStorage.setItem(SESION, u.id); } catch {}
       return perfil(u);
@@ -362,6 +365,12 @@ function crearApiDemo() {
     },
     async cambiarEstadoCuenta(uid, estado) {
       const db = leer(); exigirAdmin(db); db.usuarios.find(u => u.id == uid).estado = estado; escribir(db);
+    },
+    async completarDatosCuenta(d) {
+      const db = leer(); const u = usuarioActual(db);
+      if (!/^[0-9]{17,20}$/.test(d.discord)) throw new Error('La Discord ID tiene que ser el número de 17 a 20 cifras.');
+      Object.assign(u, { decl_grado: d.grado, decl_clon: d.clon, decl_jedi: d.jedi || null, decl_discord: d.discord, estado: 'pendiente' });
+      escribir(db); return perfil(u);
     },
 
     suscribir(tabla, alCambiar) {

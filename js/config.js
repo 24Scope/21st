@@ -15,9 +15,18 @@ const NOMBRE_SITIO = 'Base de Datos 21';
 
 /* 3) RANGOS DE CUENTA */
 const RANGOS = {
-  1: 'Usuario',
-  2: 'Administrador',
+  0: 'Pendiente de aprobación',
+  1: 'Invitado',
+  2: 'Élite',
+  3: 'Sub-Oficial',
+  4: 'Oficial',
+  5: 'Capitán',
+  6: 'Comandante',
+  7: 'Mariscal',
+  8: 'Rango Scope',
 };
+/* Rango de cuenta que administra el panel (Usuarios y rangos, Foro, aprobar cuentas). Los rangos 1 a 7 por ahora tienen los mismos permisos. */
+const RANGO_ADMIN = 8;
 
 /* 4) RANGOS DE LA LEGIÓN, de MENOR a MAYOR. Las tablas se ordenan con esta lista. */
 const RANGOS_LEGION = ['SDO', 'SDO2', 'SDO1', 'CBO', 'CBO2', 'CBO1', 'CBOM',
@@ -70,6 +79,12 @@ const CATEGORIAS_MIEMBRO = {
    - periodo: { dias, inicio } para registros que no son mensuales (Soldados, Cabos). */
 const requisito = (total, ascenso, minimo) =>
   total >= ascenso ? '✅ Cumple' : total >= minimo ? '🟨 Mínimo' : '❌ No cumple';
+/* Comandantes en adelante no necesitan cumplir mínimos, salvo que sean ARC. */
+const exentoMinimos = m => {
+  if (!m || m.elite === 'ARC') return false;
+  const g = String(m.grado || '').replace(/\s/g, '').toUpperCase();
+  return g ? CATEGORIA_POR_RANGO.comandantes.some(x => x.replace(/\s/g, '').toUpperCase() === g) : m.categoria === 'comandantes';
+};
 
 const CATEGORIAS = {
   oficiales: {
@@ -86,8 +101,8 @@ const CATEGORIAS = {
       { clave: 'try_21',   nombre: 'Try 21st',             tipo: 'numero' },
       { clave: 'act_total', nombre: 'Act. total', tipo: 'calculada', numerica: true,
         calc: v => v('ents_21') + v('ents_esp') + v('ents_bu') + v('roles_pj') + v('minirol') + v('try_bu') },
-      { clave: 'requisitos', nombre: 'Requisitos', tipo: 'calculada', calc: (v, t) => requisito(t('act_total'), 7, 3) },
-      { clave: 'aclaraciones', nombre: 'Aclaraciones / inactividad', tipo: 'texto' },
+      { clave: 'requisitos', nombre: 'Requisitos', tipo: 'calculada', calc: (v, t, m) => exentoMinimos(m) ? '⚪ Exento' : requisito(t('act_total'), 7, 3) },
+      { clave: 'aclaraciones', nombre: 'Inactividades', tipo: 'texto' },
     ],
   },
   suboficiales: {
@@ -103,8 +118,8 @@ const CATEGORIAS = {
       { clave: 'try_21',   nombre: 'Try legión',          tipo: 'numero' },
       { clave: 'act_total', nombre: 'Act. total', tipo: 'calculada', numerica: true,
         calc: v => v('ents_21') + v('ents_esp') + v('ents_bu') + v('roles_pj') + v('minirol') },
-      { clave: 'requisitos', nombre: 'Requisitos', tipo: 'calculada', calc: (v, t) => requisito(t('act_total'), 7, 3) },
-      { clave: 'aclaraciones', nombre: 'Aclaraciones / inactividad', tipo: 'texto' },
+      { clave: 'requisitos', nombre: 'Requisitos', tipo: 'calculada', calc: (v, t, m) => exentoMinimos(m) ? '⚪ Exento' : requisito(t('act_total'), 7, 3) },
+      { clave: 'aclaraciones', nombre: 'Inactividades', tipo: 'texto' },
     ],
   },
   elites: {
@@ -123,7 +138,7 @@ const CATEGORIAS = {
     columnas: [
       { clave: 'n_cap',       nombre: 'N° cap.',        tipo: 'numero' },
       { clave: 'n_trys',      nombre: 'N° trys',        tipo: 'numero' },
-      { clave: 'inactividad', nombre: 'Inactividad',    tipo: 'texto' },
+      { clave: 'inactividad', nombre: 'Inactividades',  tipo: 'texto' },
     ],
   },
   bu: {
@@ -216,6 +231,6 @@ const SECCIONES = [
   { id: 'calendario',   titulo: 'Calendario',                        icono: '▤', grupo: 'Calendario',             rangoMinimo: 1 },
   { id: 'perfil',       titulo: 'Mi perfil',                         icono: '◉', grupo: 'Legión',                 rangoMinimo: 1 },
   { id: 'miembros',     titulo: 'Miembros de la legión',             icono: '☰', grupo: 'Legión',                 rangoMinimo: 1 },
-  { id: 'usuarios',     titulo: 'Usuarios y rangos',                 icono: '⚙', grupo: 'Administración',         rangoMinimo: 2 },
-  { id: 'foro',         titulo: 'Foro de administración',            icono: '✎', grupo: 'Administración',         rangoMinimo: 2 },
+  { id: 'usuarios',     titulo: 'Usuarios y rangos',                 icono: '⚙', grupo: 'Administración',         rangoMinimo: 8 },
+  { id: 'foro',         titulo: 'Foro de administración',            icono: '✎', grupo: 'Administración',         rangoMinimo: 8 },
 ];
