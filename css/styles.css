@@ -194,6 +194,27 @@ table.hoja { border-collapse: separate; border-spacing: 0; width: max-content; m
 .hoja tr.inactivo .col-nombre { color: var(--texto-3); font-style: italic; }
 .hoja td.solo-lectura { cursor: default; }
 
+/* Hoja dividida en tablas chicas lado a lado (Élites) */
+.hoja-contenedor.con-secciones { border: 0; background: none; max-height: none; overflow: visible; padding-top: 12px; }
+.secciones-hoja { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.seccion-hoja h4 { margin: 0 0 6px; font-size: 13.5px; display: flex; align-items: center; gap: 6px; }
+.seccion-hoja h4 span { font-size: 11.5px; font-weight: 600; color: var(--texto-3); background: var(--superficie-2);
+  border: 1px solid var(--borde); border-radius: 999px; padding: 0 7px; }
+.seccion-tabla { overflow-x: auto; border: 1px solid var(--borde-fuerte); border-radius: var(--radio); background: var(--superficie); }
+.hoja.compacta { width: 100%; min-width: 0; font-size: 12.5px; }
+.hoja.compacta th, .hoja.compacta td { height: 28px; }
+.hoja.compacta tr > :last-child { border-right: 0; }
+.hoja.compacta tbody tr:last-child td { border-bottom: 0; }
+.hoja.compacta thead th { position: static; padding: 0 8px; font-size: 11.5px; }
+.hoja.compacta tfoot td { position: static; padding: 0 8px; }
+.hoja.compacta .col-nombre { position: static; min-width: 0; padding: 0 8px; }
+.hoja.compacta .col-grado { padding: 0 8px; font-size: 12px; }
+.hoja.compacta td.celda { min-width: 0; width: 1%; padding: 0 8px; }
+.hoja.compacta td.celda.texto { min-width: 90px; max-width: 160px; width: auto; }
+.hoja.compacta td.celda input { height: 26px; padding: 0 7px; }
+.hoja.compacta .vacio-chico { padding: 10px; text-align: center; color: var(--texto-3); font-size: 12.5px; }
+@media (max-width: 1000px) { .secciones-hoja { grid-template-columns: 1fr; } }
+
 .ayuda { font-size: 12.5px; color: var(--texto-3); margin-top: 10px; line-height: 1.6; }
 kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--borde-fuerte); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--superficie); }
 

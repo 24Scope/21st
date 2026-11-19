@@ -110,15 +110,18 @@ const CATEGORIAS = {
   elites: {
     titulo: 'Élites',
     incluye: ['comandantes', 'oficiales', 'suboficiales', 'cabos', 'soldados'],
-    filtro: m => !!ELITES[m.elite],
-    fijas: [{ campo: 'elite', nombre: 'Rama' }],
+    filtro: m => ['RNE', 'ASE', 'APE'].includes(m.elite),
     ordenarPor: 'elite',
+    // Una tabla chica por especialización, de izquierda a derecha
+    secciones: { campo: 'elite', lista: [
+      { valor: 'RNE', titulo: 'Reconocimientos' },
+      { valor: 'ASE', titulo: 'Asaltos' },
+      { valor: 'APE', titulo: 'Apoyos élite' },
+    ] },
     columnas: [
-      { clave: 'n_cap',       nombre: 'N° cap.',     tipo: 'numero' },
-      { clave: 'n_trys',      nombre: 'N° trys',     tipo: 'numero' },
-      { clave: 'misiones',    nombre: 'Misiones',    tipo: 'numero' },
-      { clave: 'estado',      nombre: 'Estado',      tipo: 'texto', opciones: ['Activo', 'Semi-activo', 'Inactivo'] },
-      { clave: 'inactividad', nombre: 'Inactividad', tipo: 'texto' },
+      { clave: 'n_cap',       nombre: 'Capacitaciones', tipo: 'numero' },
+      { clave: 'n_trys',      nombre: 'Trys',           tipo: 'numero' },
+      { clave: 'inactividad', nombre: 'Inactividad',    tipo: 'texto' },
     ],
   },
   bu: {

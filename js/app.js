@@ -343,6 +343,8 @@ async function vistaRegistro(cat) {
       actualizarFormula(); return;
     }
     const numCol = c => c.tipo === 'numero' || c.numerica;
+    hc.classList.toggle('con-secciones', !!config.secciones);
+    if (config.secciones) return pintarSecciones(hc, numCol);
     let html = `<table class="hoja"><thead><tr>
       <th class="fijo col-n">#</th><th class="fijo col-nombre">Miembro</th><th>Rango</th>
       ${fijas.map(f => `<th>${esc(f.nombre)}</th>`).join('')}
@@ -358,6 +360,30 @@ async function vistaRegistro(cat) {
     html += `</tbody><tfoot><tr><td class="fijo col-n"></td><td class="fijo col-nombre">Total</td><td></td>${fijas.map(() => '<td></td>').join('')}
       ${cols.map((c, ci) => `<td class="num" data-tcol="${ci}"></td>`).join('')}</tr></tfoot></table>`;
     hc.innerHTML = html;
+    hoja.filas.forEach((_, f) => cols.forEach((_, c) => pintarCelda(f, c)));
+    pintarTotales();
+    marcarSeleccion();
+  }
+
+  // Varias tablas chicas lado a lado (por ejemplo, una por especialización en Élites)
+  function pintarSecciones(hc, numCol) {
+    const { campo, lista } = config.secciones;
+    hc.innerHTML = `<div class="secciones-hoja">${lista.map((s, si) => {
+      const indices = hoja.filas.map((m, f) => m[campo] === s.valor ? f : -1).filter(f => f >= 0);
+      return `<section class="seccion-hoja">
+        <h4>${esc(s.titulo)} <span>${indices.length}</span></h4>
+        <div class="seccion-tabla"><table class="hoja compacta"><thead><tr>
+          <th class="col-nombre">Miembro</th><th>Rango</th>
+          ${cols.map(c => `<th class="${numCol(c) ? 'num' : ''}">${esc(c.nombre)}</th>`).join('')}
+        </tr></thead><tbody>
+        ${indices.length ? indices.map(f => { const m = hoja.filas[f];
+          return `<tr class="${m.activo ? '' : 'inactivo'}"><td class="col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a></td>
+            <td class="col-grado">${esc(m.grado)}</td>${cols.map((c, ci) => `<td data-f="${f}" data-c="${ci}"></td>`).join('')}</tr>`; }).join('')
+          : `<tr><td colspan="${cols.length + 2}" class="vacio-chico">Sin miembros</td></tr>`}
+        </tbody><tfoot><tr><td class="col-nombre">Total</td><td></td>
+          ${cols.map((c, ci) => `<td class="num" data-tcol="${ci}" data-sec="${si}"></td>`).join('')}</tr></tfoot></table></div>
+      </section>`;
+    }).join('')}</div>`;
     hoja.filas.forEach((_, f) => cols.forEach((_, c) => pintarCelda(f, c)));
     pintarTotales();
     marcarSeleccion();
@@ -384,6 +410,15 @@ async function vistaRegistro(cat) {
   function pintarFila(f) { recalcular(f); cols.forEach((c, ci) => { if (c.tipo === 'calculada') pintarCelda(f, ci); }); }
 
   function pintarTotales() {
+    if (config.secciones) {
+      const { campo, lista } = config.secciones;
+      cols.forEach((c, ci) => lista.forEach((s, si) => {
+        const td = $(`[data-tcol="${ci}"][data-sec="${si}"]`); if (!td) return;
+        td.textContent = c.tipo === 'numero'
+          ? formatoNum(hoja.filas.reduce((t, m, f) => t + (m[campo] === s.valor ? numero(celdaDe(f, ci)?.valor) : 0), 0)) : '';
+      }));
+      return;
+    }
     cols.forEach((c, ci) => {
       const td = $(`[data-tcol="${ci}"]`); if (!td) return;
       if (c.tipo === 'numero') td.textContent = formatoNum(hoja.filas.reduce((s, _, f) => s + numero(celdaDe(f, ci)?.valor), 0));
@@ -406,6 +441,7 @@ async function vistaRegistro(cat) {
 
   // Desplaza la hoja para que la celda quede visible sin quedar tapada por las columnas/filas fijas
   function mostrarCelda(td) {
+    if (config.secciones) return td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const hc = $('#hoja-cont'), tabla = $('table', hc);
     const colNombre = $('thead .col-nombre', tabla), anchoFijo = colNombre.offsetLeft + colNombre.offsetWidth;
     const altoCab = $('thead', tabla).offsetHeight, altoPie = $('tfoot', tabla).offsetHeight;
@@ -639,13 +675,17 @@ const ordenarMiembros = lista => lista.sort((a, b) =>
 // En Miembros de la legión solo figuran de Sargento en adelante, más los élites de cualquier rango
 const RANGO_MIN_MIEMBROS = 'SGT';
 const esDeLegion = m => indiceRango(m.grado) >= indiceRango(RANGO_MIN_MIEMBROS) || !!ELITES[m.elite];
+// Los élites que no llegan a Sargento se agrupan en "Élites" y no se muestra su rango
+const esEliteSinSGT = m => indiceRango(m.grado) < indiceRango(RANGO_MIN_MIEMBROS) && !!ELITES[m.elite];
+const catVista = m => esEliteSinSGT(m) ? 'elites' : m.categoria;
+const CATS_VISTA = { ...Object.fromEntries(Object.entries(CATEGORIAS_MIEMBRO).filter(([k, c]) => !c.oculta).map(([k, c]) => [k, c.titulo])), elites: 'Élites' };
 
 async function vistaMiembros(cont) {
   let todos = await api.listarMiembros();
   let miembros = ordenarMiembros(todos.filter(esDeLegion));
   const filtro = { texto: '', cat: '' };
   const editable = puedeEditar();
-  const opcionesCat = Object.entries(CATEGORIAS_MIEMBRO).filter(([k, c]) => !c.oculta).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
+  const opcionesCat = Object.entries(CATS_VISTA).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('');
   const opcionesCatForm = Object.entries(CATEGORIAS_MIEMBRO).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
   const nCols = editable ? 10 : 9;
 
@@ -666,11 +706,11 @@ async function vistaMiembros(cont) {
 
   function filaHTML(m) {
     return `<tr class="${m.activo ? '' : 'fila-inactiva'}">
-      <td><strong>${esc(m.grado) || '—'}</strong></td>
+      <td>${esEliteSinSGT(m) ? '<span class="tenue">—</span>' : `<strong>${esc(m.grado) || '—'}</strong>`}</td>
       <td><a class="link-perfil" href="#/perfil?id=${m.id}"><strong>${esc(m.nombre)}</strong></a>${m.notas ? ` <span class="nota" title="${esc(m.notas)}">ⓘ</span>` : ''}</td>
       <td>${esc(m.nombre_jedi) || '<span class="tenue">—</span>'}</td>
       <td>${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : '<span class="tenue">No</span>'}</td>
-      <td>${esc(tituloCat(m.categoria))}</td>
+      <td>${esc(CATS_VISTA[catVista(m)] || tituloCat(m.categoria))}</td>
       <td>${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : '<span class="tenue">No</span>'}</td>
       <td class="steam">${m.steam_id ? `<button class="copiar mono" data-copiar="${esc(m.steam_id)}" title="Copiar">${esc(m.steam_id)}</button>` : '<span class="tenue">—</span>'}
         ${m.steam_id64 ? `<a class="sub mono" href="https://steamcommunity.com/profiles/${esc(m.steam_id64)}" target="_blank" rel="noopener noreferrer">${esc(m.steam_id64)}</a>` : ''}</td>
@@ -683,28 +723,28 @@ async function vistaMiembros(cont) {
 
   function filtrados() {
     const t = filtro.texto.trim().toLowerCase();
-    return miembros.filter(m => (!filtro.cat || m.categoria === filtro.cat) && (!t ||
+    return miembros.filter(m => (!filtro.cat || catVista(m) === filtro.cat) && (!t ||
       [m.nombre, m.grado, m.nombre_jedi, m.nombre_iconico, m.elite, ELITES[m.elite], m.discord_id, m.steam_id, m.steam_id64]
         .some(v => String(v || '').toLowerCase().includes(t))));
   }
 
   function pintar() {
-    $('#resumen-miembros').innerHTML = Object.entries(CATEGORIAS_MIEMBRO).filter(([k, c]) => !c.oculta).map(([k, c]) =>
-      `<div class="tarjeta tarjeta-link" data-cat="${k}"><div class="dato-grande">${miembros.filter(m => m.categoria === k && m.activo).length}</div>
-       <div class="dato-etiqueta">${esc(c.titulo)} activos</div></div>`).join('');
+    $('#resumen-miembros').innerHTML = Object.entries(CATS_VISTA).map(([k, t]) =>
+      `<div class="tarjeta tarjeta-link" data-cat="${k}"><div class="dato-grande">${miembros.filter(m => catVista(m) === k && m.activo).length}</div>
+       <div class="dato-etiqueta">${esc(t)} activos</div></div>`).join('');
     const lista = filtrados();
     if (!lista.length) {
       $('#cuerpo-miembros').innerHTML = `<tr><td colspan="${nCols}" class="vacio">${miembros.length ? 'Ningún miembro coincide con el filtro.' : 'Todavía no hay miembros cargados.'}</td></tr>`;
       return;
     }
     let html = '';
-    for (const cat of ORDEN_CAT) {
-      const grupo = lista.filter(m => m.categoria === cat);
+    for (const cat of Object.keys(CATS_VISTA)) {
+      const grupo = lista.filter(m => catVista(m) === cat);
       if (!grupo.length) continue;
-      html += `<tr class="fila-grupo"><td colspan="${nCols}">${esc(tituloCat(cat))} <span>${grupo.length}</span></td></tr>`;
+      html += `<tr class="fila-grupo"><td colspan="${nCols}">${esc(CATS_VISTA[cat])} <span>${grupo.length}</span></td></tr>`;
       html += grupo.map(filaHTML).join('');
     }
-    const otros = lista.filter(m => !ORDEN_CAT.includes(m.categoria));
+    const otros = lista.filter(m => !CATS_VISTA[catVista(m)]);
     if (otros.length) html += `<tr class="fila-grupo"><td colspan="${nCols}">Sin categoría <span>${otros.length}</span></td></tr>` + otros.map(filaHTML).join('');
     $('#cuerpo-miembros').innerHTML = html;
   }
@@ -729,7 +769,7 @@ async function vistaMiembros(cont) {
       lista.map(r => `<option value="${esc(r)}" ${i >= 0 && RANGOS_LEGION[i] === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
   }
 
-  function formulario(m = { nombre: '', categoria: filtro.cat || 'suboficiales', grado: '', nombre_jedi: '',
+  function formulario(m = { nombre: '', categoria: CATEGORIAS_MIEMBRO[filtro.cat] ? filtro.cat : 'suboficiales', grado: '', nombre_jedi: '',
     nombre_iconico: 'No', steam_id: '', steam_id64: '', discord_id: '', elite: '', fecha_rango: '', notas: '', activo: true }) {
     abrirModal(m.id ? `Editar · ${m.grado || ''} ${m.nombre}` : 'Agregar miembro', `
       <form id="form-miembro">
@@ -798,8 +838,8 @@ async function vistaMiembros(cont) {
   function exportarCSV() {
     const enc = ['Rango', 'Nombre clon', 'Nombre Jedi', 'Icónico', 'Categoría', 'Élite',
       'SteamID', 'SteamID64', 'Discord', 'Estado', 'Notas'];
-    const filas = filtrados().map(m => [m.grado, m.nombre, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
-      tituloCat(m.categoria), ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id,
+    const filas = filtrados().map(m => [esEliteSinSGT(m) ? '' : m.grado, m.nombre, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
+      CATS_VISTA[catVista(m)] || tituloCat(m.categoria), ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id,
       m.activo ? 'Activo' : 'Inactivo', m.notas]);
     // El ="..." evita que Excel convierta SteamID64 y Discord ID en notación científica
     descargar('miembros_legion.csv', [enc, ...filas].map((r, n) => r.map((v, i) => n && (i === 7 || i === 8) && v ? `="${v}"` : celdaCSV(v)).join(';')).join('\r\n'));
