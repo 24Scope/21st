@@ -636,36 +636,38 @@ const categoriaDeRango = g => Object.keys(CATEGORIA_POR_RANGO).find(c => CATEGOR
 const ordenarMiembros = lista => lista.sort((a, b) =>
   ORDEN_CAT.indexOf(a.categoria) - ORDEN_CAT.indexOf(b.categoria) || compararRango(a, b));
 
+// En Miembros de la legión solo figuran de Sargento en adelante, más los élites de cualquier rango
+const RANGO_MIN_MIEMBROS = 'SGT';
+const esDeLegion = m => indiceRango(m.grado) >= indiceRango(RANGO_MIN_MIEMBROS) || !!ELITES[m.elite];
+
 async function vistaMiembros(cont) {
-  let miembros = ordenarMiembros(await api.listarMiembros());
-  const filtro = { texto: '', cat: '', tropas: false, inactivos: true };
+  let todos = await api.listarMiembros();
+  let miembros = ordenarMiembros(todos.filter(esDeLegion));
+  const filtro = { texto: '', cat: '' };
   const editable = puedeEditar();
-  const opcionesCat = Object.entries(CATEGORIAS_MIEMBRO).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
-  const nCols = editable ? 12 : 11;
+  const opcionesCat = Object.entries(CATEGORIAS_MIEMBRO).filter(([k, c]) => !c.oculta).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
+  const opcionesCatForm = Object.entries(CATEGORIAS_MIEMBRO).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
+  const nCols = editable ? 10 : 9;
 
   cont.innerHTML = `
     <div class="rejilla" id="resumen-miembros" style="margin-bottom:18px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
     <div class="herramientas">
-      <input class="entrada" id="buscar" placeholder="Buscar nombre, rango, N° clon, SteamID, Discord, élite…" style="max-width:320px">
+      <input class="entrada" id="buscar" placeholder="Buscar nombre, rango, SteamID, Discord, élite…" style="max-width:320px">
       <select class="entrada" id="filtro-cat" style="max-width:220px"><option value="">Todas las categorías</option>${opcionesCat}</select>
-      <label class="interruptor chico"><input type="checkbox" id="ver-inactivos" checked> Inactivos</label>
-      <label class="interruptor chico" title="Soldados y Cabos no se muestran por defecto"><input type="checkbox" id="ver-tropas"> Mostrar tropas</label>
       <span class="espacio"></span>
       <button class="btn chico" id="btn-csv-miembros">Exportar CSV</button>
       ${editable ? '<button class="btn primario" id="btn-nuevo">+ Agregar miembro</button>' : ''}
     </div>
     <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
-      <th>Rango</th><th>Nombre clon</th><th>N° clon</th><th>Nombre Jedi</th><th>Icónico</th>
-      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th><th>Antigüedad en el rango</th><th>Estado</th>${editable ? '<th></th>' : ''}
+      <th>Rango</th><th>Nombre clon</th><th>Nombre Jedi</th><th>Icónico</th>
+      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th><th>Estado</th>${editable ? '<th></th>' : ''}
     </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
     <p class="ayuda">Clic en un SteamID o Discord para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
 
   function filaHTML(m) {
-    const ant = antiguedad(m.fecha_rango);
     return `<tr class="${m.activo ? '' : 'fila-inactiva'}">
       <td><strong>${esc(m.grado) || '—'}</strong></td>
       <td><a class="link-perfil" href="#/perfil?id=${m.id}"><strong>${esc(m.nombre)}</strong></a>${m.notas ? ` <span class="nota" title="${esc(m.notas)}">ⓘ</span>` : ''}</td>
-      <td class="mono">${esc(m.numero_clon) || '—'}</td>
       <td>${esc(m.nombre_jedi) || '<span class="tenue">—</span>'}</td>
       <td>${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : '<span class="tenue">No</span>'}</td>
       <td>${esc(tituloCat(m.categoria))}</td>
@@ -673,7 +675,6 @@ async function vistaMiembros(cont) {
       <td class="steam">${m.steam_id ? `<button class="copiar mono" data-copiar="${esc(m.steam_id)}" title="Copiar">${esc(m.steam_id)}</button>` : '<span class="tenue">—</span>'}
         ${m.steam_id64 ? `<a class="sub mono" href="https://steamcommunity.com/profiles/${esc(m.steam_id64)}" target="_blank" rel="noopener noreferrer">${esc(m.steam_id64)}</a>` : ''}</td>
       <td>${m.discord_id ? `<button class="copiar mono" data-copiar="${esc(m.discord_id)}" title="Copiar">${esc(m.discord_id)}</button>` : '<span class="tenue">—</span>'}</td>
-      <td>${ant ? `${esc(ant)}<span class="sub">desde ${new Date(m.fecha_rango + 'T00:00:00').toLocaleDateString('es-AR')}</span>` : '<span class="tenue">Sin fecha</span>'}</td>
       <td><span class="etiqueta ${m.activo ? 'admin' : ''}">${m.activo ? 'Activo' : 'Inactivo'}</span></td>
       ${editable ? `<td class="acciones"><button class="btn chico" data-editar="${m.id}">Editar</button>
         <button class="btn chico peligro" data-borrar="${m.id}">Borrar</button></td>` : ''}
@@ -682,14 +683,13 @@ async function vistaMiembros(cont) {
 
   function filtrados() {
     const t = filtro.texto.trim().toLowerCase();
-    return miembros.filter(m => (filtro.cat ? m.categoria === filtro.cat : (filtro.tropas || !catOculta(m.categoria)))
-      && (filtro.inactivos || m.activo) && (!t ||
-      [m.nombre, m.grado, m.numero_clon, m.nombre_jedi, m.nombre_iconico, m.elite, ELITES[m.elite], m.discord_id, m.steam_id, m.steam_id64]
+    return miembros.filter(m => (!filtro.cat || m.categoria === filtro.cat) && (!t ||
+      [m.nombre, m.grado, m.nombre_jedi, m.nombre_iconico, m.elite, ELITES[m.elite], m.discord_id, m.steam_id, m.steam_id64]
         .some(v => String(v || '').toLowerCase().includes(t))));
   }
 
   function pintar() {
-    $('#resumen-miembros').innerHTML = Object.entries(CATEGORIAS_MIEMBRO).filter(([k, c]) => filtro.tropas || !c.oculta).map(([k, c]) =>
+    $('#resumen-miembros').innerHTML = Object.entries(CATEGORIAS_MIEMBRO).filter(([k, c]) => !c.oculta).map(([k, c]) =>
       `<div class="tarjeta tarjeta-link" data-cat="${k}"><div class="dato-grande">${miembros.filter(m => m.categoria === k && m.activo).length}</div>
        <div class="dato-etiqueta">${esc(c.titulo)} activos</div></div>`).join('');
     const lista = filtrados();
@@ -729,7 +729,7 @@ async function vistaMiembros(cont) {
       lista.map(r => `<option value="${esc(r)}" ${i >= 0 && RANGOS_LEGION[i] === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
   }
 
-  function formulario(m = { nombre: '', categoria: filtro.cat || 'suboficiales', grado: '', numero_clon: '', nombre_jedi: '',
+  function formulario(m = { nombre: '', categoria: filtro.cat || 'suboficiales', grado: '', nombre_jedi: '',
     nombre_iconico: 'No', steam_id: '', steam_id64: '', discord_id: '', elite: '', fecha_rango: '', notas: '', activo: true }) {
     abrirModal(m.id ? `Editar · ${m.grado || ''} ${m.nombre}` : 'Agregar miembro', `
       <form id="form-miembro">
@@ -738,12 +738,12 @@ async function vistaMiembros(cont) {
           <label class="campo"><span>Nombre clon *</span><input name="nombre" required maxlength="60" value="${esc(m.nombre)}"></label>
         </div>
         <div class="fila-campos">
-          <label class="campo"><span>N° de clon</span><input name="numero_clon" maxlength="10" inputmode="numeric" value="${esc(m.numero_clon)}"></label>
-          <label class="campo"><span>Categoría</span><select name="categoria">${opcionesCat}</select></label>
+          <label class="campo"><span>Categoría</span><select name="categoria">${opcionesCatForm}</select></label>
+          <label class="campo"><span>Nombre Jedi</span><input name="nombre_jedi" maxlength="60" value="${esc(m.nombre_jedi)}" placeholder="Vacío si no tiene"></label>
         </div>
         <div class="fila-campos">
-          <label class="campo"><span>Nombre Jedi</span><input name="nombre_jedi" maxlength="60" value="${esc(m.nombre_jedi)}" placeholder="Vacío si no tiene"></label>
           <label class="campo"><span>Icónico</span><select name="nombre_iconico">${opcionesIconico(m)}</select></label>
+          <label class="campo"><span>Fecha de ingreso</span><input name="fecha_ingreso" type="date" value="${esc(m.fecha_ingreso || '')}"></label>
         </div>
         <div class="fila-campos">
           <label class="campo"><span>Élite</span><select name="elite"><option value="">No</option>${Object.entries(ELITES).map(([k, t]) => `<option value="${k}">${k} · ${esc(t)}</option>`).join('')}</select></label>
@@ -754,10 +754,6 @@ async function vistaMiembros(cont) {
           <label class="campo"><span>SteamID64</span><input name="steam_id64" maxlength="20" class="mono" value="${esc(m.steam_id64)}" placeholder="7656119…"></label>
         </div>
         <p class="ayuda" id="aviso-steam" style="margin:-6px 0 12px">Completá uno de los dos y el otro se calcula solo.</p>
-        <div class="fila-campos">
-          <label class="campo"><span>En el rango actual desde</span><input name="fecha_rango" type="date" value="${esc(m.fecha_rango || '')}"></label>
-          <label class="campo"><span>Fecha de ingreso</span><input name="fecha_ingreso" type="date" value="${esc(m.fecha_ingreso || '')}"></label>
-        </div>
         <label class="campo"><span>Notas</span><textarea name="notas" maxlength="500">${esc(m.notas)}</textarea></label>
         <label class="interruptor" style="margin-bottom:16px"><input type="checkbox" name="activo" ${m.activo ? 'checked' : ''}>
           <span>Activo<br><small style="color:var(--texto-3)">Los inactivos no aparecen en las tablas, salvo en los meses donde tengan datos.</small></span></label>
@@ -777,18 +773,22 @@ async function vistaMiembros(cont) {
           $('#aviso-steam', c).innerHTML = `<span style="color:var(--peligro)">El SteamID y el SteamID64 no coinciden. Para ${esc(sid)} el correcto es ${steamA64(sid)}.</span>`;
           return;
         }
+        if (!esDeLegion({ grado: f.grado.value, elite: f.elite.value })) {
+          aviso('Solo se cargan miembros de Sargento (SGT) en adelante, o élites.', 'error'); return;
+        }
         const did = f.discord_id.value.trim();
         if (did && /\s/.test(did)) { aviso('El Discord no puede tener espacios.', 'error'); return; }
-        const repetido = sid && miembros.find(x => x.id !== m.id && x.steam_id === sid);
+        const repetido = sid && todos.find(x => x.id !== m.id && x.steam_id === sid);
         if (repetido && !await confirmar('SteamID repetido', `${repetido.grado} ${repetido.nombre} ya tiene ese SteamID. ¿Guardar igual?`, 'Guardar igual')) return formulario(m);
         try {
           const g = await api.guardarMiembro({ ...(m.id ? { id: m.id } : {}),
             nombre: f.nombre.value.trim(), grado: f.grado.value.trim(), categoria: f.categoria.value,
-            numero_clon: f.numero_clon.value.trim(), nombre_jedi: f.nombre_jedi.value.trim(),
+            nombre_jedi: f.nombre_jedi.value.trim(),
             nombre_iconico: f.nombre_iconico.value || 'No', elite: f.elite.value, discord_id: did,
-            steam_id: sid, steam_id64: s64, fecha_rango: f.fecha_rango.value || null, fecha_ingreso: f.fecha_ingreso.value || null,
+            steam_id: sid, steam_id64: s64, fecha_ingreso: f.fecha_ingreso.value || null,
             notas: f.notas.value.trim(), activo: f.activo.checked });
-          miembros = ordenarMiembros(m.id ? miembros.map(x => x.id === g.id ? g : x) : [...miembros, g]);
+          todos = m.id ? todos.map(x => x.id === g.id ? g : x) : [...todos, g];
+          miembros = ordenarMiembros(todos.filter(esDeLegion));
           cerrarModal(); pintar(); aviso('Miembro guardado.');
         } catch (e) { fallo(e); }
       };
@@ -796,19 +796,17 @@ async function vistaMiembros(cont) {
   }
 
   function exportarCSV() {
-    const enc = ['Rango', 'Nombre clon', 'N° clon', 'Nombre Jedi', 'Icónico', 'Categoría', 'Élite',
-      'SteamID', 'SteamID64', 'Discord', 'En el rango desde', 'Antigüedad en el rango', 'Estado', 'Notas'];
-    const filas = filtrados().map(m => [m.grado, m.nombre, m.numero_clon, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
-      tituloCat(m.categoria), ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id, m.fecha_rango || '',
-      antiguedad(m.fecha_rango), m.activo ? 'Activo' : 'Inactivo', m.notas]);
+    const enc = ['Rango', 'Nombre clon', 'Nombre Jedi', 'Icónico', 'Categoría', 'Élite',
+      'SteamID', 'SteamID64', 'Discord', 'Estado', 'Notas'];
+    const filas = filtrados().map(m => [m.grado, m.nombre, m.nombre_jedi, tieneIconico(m) ? m.nombre_iconico : 'No',
+      tituloCat(m.categoria), ELITES[m.elite] ? m.elite : 'No', m.steam_id, m.steam_id64, m.discord_id,
+      m.activo ? 'Activo' : 'Inactivo', m.notas]);
     // El ="..." evita que Excel convierta SteamID64 y Discord ID en notación científica
-    descargar('miembros_legion.csv', [enc, ...filas].map((r, n) => r.map((v, i) => n && (i === 8 || i === 9) && v ? `="${v}"` : celdaCSV(v)).join(';')).join('\r\n'));
+    descargar('miembros_legion.csv', [enc, ...filas].map((r, n) => r.map((v, i) => n && (i === 7 || i === 8) && v ? `="${v}"` : celdaCSV(v)).join(';')).join('\r\n'));
   }
 
   $('#buscar').oninput = e => { filtro.texto = e.target.value; pintar(); };
   $('#filtro-cat').onchange = e => { filtro.cat = e.target.value; pintar(); };
-  $('#ver-tropas').onchange = e => { filtro.tropas = e.target.checked; pintar(); };
-  $('#ver-inactivos').onchange = e => { filtro.inactivos = e.target.checked; pintar(); };
   $('#resumen-miembros').onclick = ev => {
     const t = ev.target.closest('[data-cat]'); if (!t) return;
     filtro.cat = filtro.cat === t.dataset.cat ? '' : t.dataset.cat; $('#filtro-cat').value = filtro.cat; pintar();
@@ -831,7 +829,7 @@ async function vistaMiembros(cont) {
   };
   estado.limpiezas.push(api.suscribir('miembros', async () => {
     if (!$('#modal-fondo').hidden) return;
-    try { miembros = ordenarMiembros(await api.listarMiembros()); pintar(); } catch {}
+    try { todos = await api.listarMiembros(); miembros = ordenarMiembros(todos.filter(esDeLegion)); pintar(); } catch {}
   }));
   pintar();
 }
@@ -1221,7 +1219,6 @@ async function vistaPerfil(cont) {
   const sel = { anio: hoy.getFullYear(), mes: hoy.getMonth() + 1 };
 
   const dato = (titulo, valor) => valor ? `<div><span class="dato-etiqueta">${titulo}</span><div>${valor}</div></div>` : '';
-  const ant = antiguedad(m.fecha_rango);
   cont.innerHTML = `
     <div class="perfil-cabecera tarjeta">
       <div class="perfil-avatar">${esc((m.nombre || '?').charAt(0).toUpperCase())}</div>
@@ -1232,9 +1229,7 @@ async function vistaPerfil(cont) {
           <span class="etiqueta ${m.activo ? 'admin' : ''}">${m.activo ? 'Activo' : 'Inactivo'}</span></div>
         <div class="perfil-datos">
           ${dato('Categoría', esc(tituloCat(m.categoria)))}
-          ${dato('N° de clon', esc(m.numero_clon))}
           ${dato('Discord', m.discord_id ? `<span class="mono">${esc(m.discord_id)}</span>` : '')}
-          ${dato('En el rango', ant ? esc(ant) : '')}
           ${dato('Ingreso', m.fecha_ingreso ? new Date(m.fecha_ingreso + 'T00:00:00').toLocaleDateString('es-AR') : '')}
           ${dato('Cuenta vinculada', cuenta ? esc(cuenta.nombre) : '')}
         </div>
