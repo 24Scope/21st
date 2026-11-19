@@ -222,6 +222,7 @@ async function vistaInicio(cont) {
 }
 
 /* ============================================================ REGISTROS: utilidades */
+const COL_PLANTEL = '_plantel';   // columna oculta: quién figura en cada hoja histórica y con qué rango
 
 // Período (Soldados / Cabos) que contiene la fecha dada
 function periodoDe(config, fecha) {
@@ -331,9 +332,18 @@ async function vistaRegistro(cat) {
     $('#hoja-cont').innerHTML = '<div class="vacio">Cargando…</div>';
     const [miembros, regs] = await Promise.all([api.listarMiembros(), api.listarRegistros(cat, hoja.clave)]);
     hoja.celdas = new Map(regs.map(r => [clave(r.miembro_id, r.columna), r]));
-    const conDatos = new Set(regs.filter(r => r.valor !== null && r.valor !== '').map(r => r.miembro_id));
-    hoja.filas = ordenarFilasRegistro(config, miembros.filter(m =>
-      (m.activo && config.incluye.includes(m.categoria) && (!config.filtro || config.filtro(m))) || conDatos.has(m.id)));
+    // "_plantel" guarda quién figuraba en esa hoja (según los Excel) y con qué rango/élite: "RANGO/ELITE".
+    // Si la hoja tiene plantel se muestra solo esa gente, con su rango de ese momento; si no, los miembros activos actuales.
+    const plantel = new Map(regs.filter(r => r.columna === COL_PLANTEL).map(r => [r.miembro_id, r.valor || '']));
+    const conDatos = new Set(regs.filter(r => r.columna !== COL_PLANTEL && r.valor !== null && r.valor !== '').map(r => r.miembro_id));
+    const base = plantel.size
+      ? miembros.filter(m => plantel.has(m.id) || conDatos.has(m.id))
+      : miembros.filter(m => (m.activo && config.incluye.includes(m.categoria) && (!config.filtro || config.filtro(m))) || conDatos.has(m.id));
+    hoja.filas = ordenarFilasRegistro(config, base.map(m => {
+      if (!plantel.has(m.id)) return m;
+      const [grado, elite] = plantel.get(m.id).split('/');
+      return { ...m, grado: grado || m.grado, elite: elite || m.elite, activo: true };
+    }));
     hoja.filas.forEach((_, f) => recalcular(f));
     hoja.sel = { f: Math.min(hoja.sel.f, Math.max(hoja.filas.length - 1, 0)), c: Math.min(hoja.sel.c, cols.length - 1) };
     pintar();
