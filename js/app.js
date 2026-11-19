@@ -1240,7 +1240,7 @@ async function vistaActividad(cont) {
     const lista = actividades.filter(a => filtro.ver === 'anuladas' ? a.anulada
       : !a.anulada && (filtro.ver !== 'mias' || a.participantes.includes(yo?.id) || a.autor_perfil === estado.perfil.id));
     $('#cuerpo-act').innerHTML = lista.length ? lista.map(a => {
-      const puedeAnular = !a.anulada && (esAdmin() || a.autor_perfil === estado.perfil.id);
+      const puedeAnular = !a.anulada;   // el historial solo lo ven comandantes, que pueden anular siempre
       return `<tr class="${a.anulada ? 'fila-inactiva' : ''}">
         <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
         <td><strong>${esc(tipoDe(a.tipo)?.nombre || a.tipo)}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
@@ -1267,6 +1267,7 @@ async function vistaActividad(cont) {
 }
 
 /* ============================================================ PERFIL DE UN MIEMBRO */
+const MINUTOS_ANULAR = 10;   // igual que en la función anular_actividad de la base
 // Totales del resumen mensual: cada uno suma estas columnas en estos registros
 const TOTALES_PERFIL = [
   { titulo: 'Actividad total', ayuda: 'Act. total de Oficiales y Comandantes / Suboficiales', calc: { oficiales: 'act_total', suboficiales: 'act_total' } },
@@ -1370,8 +1371,20 @@ async function vistaPerfil(cont) {
       <td style="white-space:normal;min-width:140px">${otros.length ? otros.map(id => `<a class="link-perfil" href="#/perfil?id=${id}">${esc(etiqueta(id))}</a>`).join(', ') : '<span class="tenue">—</span>'}</td>
       <td>${a.autor_miembro ? `<a class="link-perfil" href="#/perfil?id=${a.autor_miembro}">${esc(etiqueta(a.autor_miembro))}</a>` : '—'}</td>
       <td>${cuando ? new Date(cuando).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
-      <td><a class="btn chico" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir en Discord ↗</a></td>
+      <td class="acciones"><a class="btn chico" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir en Discord ↗</a>${botonAnular(a)}</td>
     </tr>`;
+  }
+
+  // Quien cargó la actividad puede anularla desde su perfil durante los primeros minutos (la base lo vuelve a controlar)
+  function minutosParaAnular(a) {
+    if (a.anulada || a.autor_perfil !== estado.perfil.id) return 0;
+    return Math.max(0, MINUTOS_ANULAR - (Date.now() - new Date(a.creado_en)) / 60000);
+  }
+  function botonAnular(a) {
+    const min = minutosParaAnular(a);
+    if (!min) return '';
+    const txt = min < 1 ? 'menos de 1 min' : `${Math.ceil(min)} min`;
+    return ` <button class="btn chico peligro" data-anular="${a.id}" title="Podés anularla durante ${MINUTOS_ANULAR} minutos desde que la cargaste">Anular (queda${min < 1 || Math.ceil(min) === 1 ? '' : 'n'} ${txt})</button>`;
   }
 
   function pintar() {
@@ -1412,6 +1425,17 @@ async function vistaPerfil(cont) {
     sel.anio = d.getFullYear(); sel.mes = d.getMonth() + 1; pintar();
   });
   $('#btn-mes-actual').onclick = () => { sel.anio = hoy.getFullYear(); sel.mes = hoy.getMonth() + 1; pintar(); };
+  $('#perfil-actividades').onclick = async ev => {
+    const b = ev.target.closest('[data-anular]'); if (!b) return;
+    const a = actividades.find(x => x.id == b.dataset.anular);
+    if (!await confirmar('Anular actividad', `Se va a anular "${tipoNombre(a.tipo)}" del ${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')} y se descuenta de las tablas de ${a.participantes.length} participante${a.participantes.length === 1 ? '' : 's'}.`, 'Anular')) return;
+    try { await api.anularActividad(a.id); aviso('Actividad anulada y descontada.'); navegar(); } catch (e) { fallo(e); }
+  };
+  // Mientras haya actividades que todavía se pueden anular, se actualiza el contador; al vencer, el botón desaparece
+  if (actividades.some(a => minutosParaAnular(a) > 0)) {
+    const reloj = setInterval(() => { if ($('#perfil-actividades')) pintar(); else clearInterval(reloj); }, 20000);
+    estado.limpiezas.push(() => clearInterval(reloj));
+  }
   pintar();
 }
 
