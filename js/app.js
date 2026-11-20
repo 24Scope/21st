@@ -337,9 +337,74 @@ function ajustarColumnas(cont) {
     if (colN) $$('.col-nombre', tabla).forEach(x => { x.style.left = colN + 'px'; });
   }
 }
+/* Lo mismo para las tablas comunes (Miembros, Mi perfil, Registrar actividad, Usuarios y rangos, etc.).
+   Se mide el ancho real de cada celda; las columnas con botones o desplegables toman el ancho completo para no cortarlos. */
+const ANCHO_DATOS = { min: 48, max: 360 };
+function ajustarTablaDatos(tabla) {
+  if (!tabla.isConnected || !tabla.offsetParent || tabla.querySelector('textarea')) return;
+  const filaCab = tabla.tHead?.rows[0]; if (!filaCab) return;
+  const n = filaCab.cells.length;
+  const filas = [...tabla.tBodies].flatMap(b => [...b.rows]).filter(r => r.cells.length === n);
+  if (!filas.length) return;
+  // Volver al ancho natural (sin cortes) para medir
+  tabla.querySelector('colgroup')?.remove();
+  tabla.style.width = '';
+  tabla.classList.remove('ajustada');
+  tabla.classList.add('midiendo');
+  const rango = document.createRange();
+  const anchoDe = el => { rango.selectNodeContents(el); return rango.getBoundingClientRect().width; };
+  const anchos = [];
+  for (let c = 0; c < n; c++) {
+    const th = filaCab.cells[c], estTh = getComputedStyle(th);
+    const padTh = parseFloat(estTh.paddingLeft) + parseFloat(estTh.paddingRight);
+    const titulo = th.textContent.trim(), anchoTitulo = anchoDe(th);
+    const largos = titulo.split(/\s+/).map(p => p.length), totalLetras = titulo.replace(/\s+/g, '').length || 1;
+    // Encabezado: hasta 2 renglones, sin cortar palabras
+    const minCab = (titulo ? Math.max(anchoTitulo * Math.max(...largos) / totalLetras, anchoTitulo / 2) : 0) + padTh + 4;
+    const medidas = [];
+    let interactivo = false;
+    for (const fila of filas) {
+      const td = fila.cells[c];
+      if (td.querySelector('select, input, .btn, button:not(.copiar)')) interactivo = true;
+      if (!td.textContent.trim() && !td.querySelector('select, input, button, img')) continue;
+      const est = getComputedStyle(td);
+      // Los desplegables se miden por su opción más larga (si no, quedan tan angostos como la columna)
+      const sel = td.querySelector('select');
+      const anchoSel = sel ? Math.max(...[...sel.options].map(o => medirTexto(o.text, getComputedStyle(sel).font))) + 44 : 0;
+      medidas.push(Math.max(anchoDe(td), anchoSel) + parseFloat(est.paddingLeft) + parseFloat(est.paddingRight) + 2);
+    }
+    medidas.sort((a, b) => a - b);
+    const tipico = !medidas.length ? 0
+      : interactivo ? medidas[medidas.length - 1]
+      : medidas[Math.min(medidas.length - 1, Math.floor((medidas.length - 1) * ANCHO_COL.percentil))];
+    anchos.push(Math.round(Math.max(ANCHO_DATOS.min, minCab, interactivo ? tipico : Math.min(ANCHO_DATOS.max, tipico))));
+  }
+  tabla.classList.remove('midiendo');
+  tabla.insertAdjacentHTML('afterbegin', `<colgroup>${anchos.map(a => `<col style="width:${a}px">`).join('')}</colgroup>`);
+  tabla.style.width = anchos.reduce((s, a) => s + a, 0) + 'px';
+  tabla.classList.add('ajustada');
+}
+// Cada vez que una vista dibuja o actualiza una tabla, se reajusta (una vez por cuadro)
+const tablasPendientes = new Set();
+new MutationObserver(cambios => {
+  for (const m of cambios) {
+    const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+    const t = el?.closest?.('table.datos');
+    if (t) { if (el.closest('tbody, thead')) tablasPendientes.add(t); continue; }
+    m.addedNodes.forEach(nd => {
+      if (nd.nodeType !== 1) return;
+      if (nd.matches('table.datos')) tablasPendientes.add(nd);
+      nd.querySelectorAll?.('table.datos').forEach(x => tablasPendientes.add(x));
+    });
+  }
+  if (tablasPendientes.size) setTimeout(() => {
+    const lista = [...tablasPendientes]; tablasPendientes.clear();
+    lista.forEach(ajustarTablaDatos);
+  });
+}).observe(document.getElementById('contenido'), { childList: true, subtree: true });
 // Al pasar el mouse por una celda cortada se ve el texto completo
 document.addEventListener('mouseover', ev => {
-  const td = ev.target.closest?.('table.hoja.ajustada td, table.hoja.ajustada th');
+  const td = ev.target.closest?.('table.hoja.ajustada td, table.hoja.ajustada th, table.datos.ajustada td, table.datos.ajustada th');
   if (!td || td.classList.contains('editando')) return;
   if (td.dataset.tituloPropio === undefined) td.dataset.tituloPropio = td.getAttribute('title') || '';
   const txt = td.textContent.replace(/\s+/g, ' ').trim();
