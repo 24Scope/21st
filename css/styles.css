@@ -425,6 +425,21 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .asc-lista .btn-link { margin-left: 8px; }
 .asc-pre { white-space: pre-wrap; font-size: 13px; background: var(--superficie-2); padding: 12px; border-radius: 8px; max-height: 60vh; overflow: auto; }
 
+/* Ascensos: casillas por informe y vista previa */
+.asc-cuenta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.asc-check { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border: 1px solid var(--borde-fuerte); border-radius: 8px;
+  cursor: pointer; background: var(--superficie); min-width: 200px; }
+.asc-check:has(input:checked) { border-color: var(--acento); background: var(--acento-suave); }
+.asc-check input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--acento); flex: none; }
+.asc-check span { display: flex; flex-direction: column; gap: 1px; font-size: 13.5px; }
+.asc-check small { color: var(--texto-3); font-size: 12px; }
+.asc-cuenta > small { flex-basis: 100%; }
+.asc-previa-cab { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.asc-previa { background: var(--superficie-2); border: 1px solid var(--borde); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
+.asc-inf-opciones { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.asc-check-mini { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; color: var(--texto-2); cursor: pointer; }
+.asc-check-mini input { width: 14px; height: 14px; accent-color: var(--acento); }
+
 /* Ascensos: pestañas, revisiones y verificación */
 .pestanas-vista { display: flex; gap: 4px; border-bottom: 1px solid var(--borde-fuerte); margin-bottom: 16px; flex-wrap: wrap; }
 .pestanas-vista a { padding: 8px 14px; color: var(--texto-2); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 14px; }

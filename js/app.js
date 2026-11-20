@@ -2384,59 +2384,129 @@ window.addEventListener('hashchange', cerrarMenuInact);
 document.addEventListener('scroll', cerrarMenuInact, true);
 
 /* ============================================================ ASCENSOS DE TROPAS
-   1) Se pegan las listas de participantes de varios informes y se recuentan, por persona, actividades, liderazgos
-      y subliderazgos. Solo cuentan los rangos de la revisión elegida (nunca Sargento en adelante).
+   1) Se pega el mensaje de cada informe tal cual (o solo la lista). La web saca el título, el tipo de actividad
+      (entrenamiento, misión, minirol, rol de PJ, capacitación) y los participantes. En cada informe se marca qué se
+      contabiliza: Soldados, Cabos o ambos (nunca Sargento en adelante).
    2) Quien la cargó la guarda: queda pública "sin verificar" y cualquiera puede corregirla (juntar nombres, borrar, editar).
    3) "Verificar y guardar" la deja fija en el historial, lista para la captura de Discord. */
-const REVISIONES_ASCENSO = {
-  soldados: { titulo: 'Soldados', ayuda: 'Cuenta solo SDO, SDO2 y SDO1.', rangos: () => CATEGORIA_POR_RANGO.soldados },
-  tropa:    { titulo: 'Soldados y Cabos', ayuda: 'Cuenta de SDO hasta CBOM.', rangos: () => [...CATEGORIA_POR_RANGO.soldados, ...CATEGORIA_POR_RANGO.cabos] },
+const GRUPOS_ASCENSO = {
+  soldados: { titulo: 'Soldados', rangos: () => CATEGORIA_POR_RANGO.soldados },
+  cabos:    { titulo: 'Cabos',    rangos: () => CATEGORIA_POR_RANGO.cabos },
 };
-const CLAVE_ASCENSOS = 'bd21_ascensos_v1';
+const TIPOS_INFORME_ASC = {
+  ent:    { nombre: 'Entrenamiento', plural: 'Entrenamientos' },
+  mision: { nombre: 'Misión',        plural: 'Misiones' },
+  minirol:{ nombre: 'Minirol',       plural: 'Miniroles' },
+  rol_pj: { nombre: 'Rol de PJ',     plural: 'Roles de PJ' },
+  cap:    { nombre: 'Capacitación',  plural: 'Capacitaciones' },
+  otro:   { nombre: 'Otra actividad', plural: 'Otras' },
+};
+// Revisiones guardadas antes (un solo tipo para todos los informes)
+const REVISIONES_ASCENSO = {
+  soldados: { titulo: 'Soldados', grupos: ['soldados'] },
+  tropa:    { titulo: 'Soldados y Cabos', grupos: ['soldados', 'cabos'] },
+};
+const CLAVE_ASCENSOS = 'bd21_ascensos_v2';
 const normNombreAsc = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const RE_DISCORD = /^https:\/\/([a-z]+\.)?(discord\.com|discordapp\.com)\/channels\/\S+$/i;
+const rangosDeGrupos = grupos => new Set(grupos.flatMap(g => GRUPOS_ASCENSO[g]?.rangos() || []).map(normRango));
+const gruposDeInforme = (inf, revision) => inf.cuenta?.length ? inf.cuenta : (REVISIONES_ASCENSO[revision]?.grupos || ['soldados']);
+const textoGrupos = g => g.map(x => GRUPOS_ASCENSO[x]?.titulo).filter(Boolean).join(' y ');
 
-// Lee una lista como "<SDO2 Taitus> (Lider)". Devuelve { lineas: [{ grado, nombre, rol }], noLeidas: [texto] }.
-function leerInformeAscenso(texto) {
-  const rangos = RANGOS_LEGION.map(r => ({ r, n: normRango(r) }));
-  const lineas = [], noLeidas = [];
-  for (const cruda of String(texto || '').split(/\r?\n/)) {
-    const l = cruda.trim();
-    if (!l) continue;
-    const rolTxt = (/\(([^)]*)\)/.exec(l)?.[1] || '').toLowerCase();
-    const sinRol = l.replace(/\([^)]*\)/g, ' ').replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
-    const partes = sinRol.split(' ');
-    let grado = null, resto = partes.slice(1);
-    if (partes.length > 2) {     // el rango puede venir en dos partes ("SDO 1", "CMD B")
-      const dos = rangos.find(x => x.n === normRango(partes[0] + partes[1]) && partes[1].length <= 2);
-      if (dos) { grado = dos.r; resto = partes.slice(2); }
-    }
-    if (!grado) { const uno = rangos.find(x => x.n === normRango(partes[0])); if (uno) grado = uno.r; }
-    const nombre = resto.join(' ').trim();
-    if (!grado || !nombre) { noLeidas.push(l); continue; }
-    const rol = /sub|segundo|2do|2°|co-?l[ií]der/.test(rolTxt) ? 'sub' : /l[ií]der|lead/.test(rolTxt) ? 'lider' : '';
-    lineas.push({ grado, nombre, rol });
+// Lee un renglón tipo "<SDO2 Taitus> (Lider)"
+function leerRenglonAscenso(l, rangos) {
+  const rolTxt = (/\(([^)]*)\)/.exec(l)?.[1] || '').toLowerCase();
+  const sinRol = l.replace(/\([^)]*\)/g, ' ').replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
+  const partes = sinRol.split(' ');
+  let grado = null, resto = partes.slice(1);
+  if (partes.length > 2) {     // el rango puede venir en dos partes ("SDO 1", "CMD B")
+    const dos = rangos.find(x => x.n === normRango(partes[0] + partes[1]) && partes[1].length <= 2);
+    if (dos) { grado = dos.r; resto = partes.slice(2); }
   }
-  return { lineas, noLeidas };
+  if (!grado) { const uno = rangos.find(x => x.n === normRango(partes[0])); if (uno) grado = uno.r; }
+  const nombre = resto.join(' ').trim();
+  if (!grado || !nombre) return null;
+  const rol = /sub|segundo|2do|2°|co-?l[ií]der/.test(rolTxt) ? 'sub' : /l[ií]der|lead/.test(rolTxt) ? 'lider' : '';
+  return { grado, nombre, rol };
 }
 
-// Recuento por persona. informes = [{ titulo, texto }]. Cada persona: { k, nombre, grado, actividades, lider, sub, informes: [índices] }
+// Tipo de actividad según un texto (el título del informe)
+function tipoInformeAscenso(t) {
+  const s = String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  if (/MINI\s*-?\s*ROL/.test(s)) return 'minirol';
+  if (/ROL(ES)?\s*(DE\s*)?PJ|ROLPJ/.test(s)) return 'rol_pj';
+  if (/CAPACITACION/.test(s)) return 'cap';
+  if (/MISION/.test(s)) return 'mision';
+  if (/ENTRENAMIENTO|\bENT\b/.test(s)) return 'ent';
+  return '';
+}
+
+// Lee el mensaje completo de un informe (o solo la lista de participantes).
+// Devuelve { titulo, tipo, link, lineas: [{ grado, nombre, rol }], noLeidas: [texto] }.
+function leerInformeAscenso(texto) {
+  const rangos = RANGOS_LEGION.map(r => ({ r, n: normRango(r) }));
+  const todas = String(texto || '').split(/\r?\n/).map(x => x.trim());
+  // Título: el primer renglón dentro del primer bloque de código (```prolog ...```); si no hay, el primer renglón con texto
+  let titulo = '';
+  for (let i = 0; i < todas.length; i++) {
+    if (/^```/.test(todas[i])) {
+      const resto = todas[i].replace(/^```\w*\s*/, '').replace(/```$/, '').trim();
+      if (resto) { titulo = resto; break; }
+      const sig = todas.slice(i + 1).find(x => x && !/^```/.test(x));
+      if (sig) { titulo = sig.replace(/```$/, '').trim(); break; }
+    }
+  }
+  if (!titulo) titulo = todas.find(x => x && !/^</.test(x) && !/^(#|\*\*|[-+]|━)/.test(x)) || '';
+  titulo = titulo.replace(/[*_`#]/g, '').trim();
+  const tipo = tipoInformeAscenso(titulo) || '';
+  const link = (/https:\/\/(?:[a-z]+\.)?(?:discord\.com|discordapp\.com)\/channels\/[\d/]+/i.exec(texto || '') || [''])[0];
+
+  // Participantes: lo que viene después de "PARTICIPANTES" hasta que cierra el bloque; si no hay ese título,
+  // los renglones que empiezan con "<"; si tampoco, todos los renglones (una lista pegada sola).
+  let candidatas;
+  const iPart = todas.findIndex(x => /PARTICIPANTES/i.test(x));
+  if (iPart >= 0) {
+    candidatas = [];
+    for (const x of todas.slice(iPart + 1)) { if (/^```/.test(x)) break; candidatas.push(x); }
+  } else if (todas.some(x => /^<[^@#:!]/.test(x))) candidatas = todas.filter(x => /^</.test(x));
+  else candidatas = todas;
+  const lineas = [], noLeidas = [];
+  for (const l of candidatas) {
+    if (!l || /^<[@#:!]/.test(l)) continue;           // menciones de Discord (<@...>, <#...>)
+    const r = leerRenglonAscenso(l, rangos);
+    r ? lineas.push(r) : noLeidas.push(l);
+  }
+  return { titulo, tipo, link, lineas, noLeidas };
+}
+
+// Recuento por persona. Cada persona: { k, nombre, grado, por: {tipo: n}, actividades, lider, sub, informes: [índices] }
 function recontarAscenso(informes, revision) {
-  const rangos = new Set(REVISIONES_ASCENSO[revision].rangos().map(normRango));
   const personas = new Map();
   informes.forEach((inf, i) => {
+    const rangos = rangosDeGrupos(gruposDeInforme(inf, revision));
+    const tipo = inf.tipo || 'otro';
     for (const l of leerInformeAscenso(inf.texto).lineas) {
       if (!rangos.has(normRango(l.grado))) continue;
       const k = normNombreAsc(l.nombre);
-      if (!personas.has(k)) personas.set(k, { k: Math.random().toString(36).slice(2, 9), nombre: l.nombre, grado: l.grado, actividades: 0, lider: 0, sub: 0, informes: [] });
+      if (!personas.has(k)) personas.set(k, { k: Math.random().toString(36).slice(2, 9), nombre: l.nombre, grado: l.grado, por: {}, actividades: 0, lider: 0, sub: 0, informes: [] });
       const p = personas.get(k);
       p.grado = l.grado;
-      if (!p.informes.includes(i)) { p.informes.push(i); p.actividades++; }
+      if (!p.informes.includes(i)) { p.informes.push(i); p.por[tipo] = (p.por[tipo] || 0) + 1; p.actividades++; }
       if (l.rol === 'lider') p.lider++;
       if (l.rol === 'sub') p.sub++;
     }
   });
   return [...personas.values()];
 }
+// Personas de revisiones viejas (sin desglose por tipo)
+function normalizarPersonaAsc(p) {
+  p.k = p.k || Math.random().toString(36).slice(2, 9);
+  p.informes = p.informes || [];
+  if (!p.por) p.por = { otro: +p.actividades || 0 };
+  p.actividades = Object.values(p.por).reduce((s, n) => s + (+n || 0), 0);
+  return p;
+}
+const tiposUsadosAsc = personas => Object.keys(TIPOS_INFORME_ASC).filter(t => personas.some(p => +p.por?.[t]));
 
 // Distancia de edición (para sugerir nombres parecidos)
 function distanciaNombres(a, b) {
@@ -2456,7 +2526,7 @@ function posiblesDuplicados(personas, descartados) {
     const corto = sa.length <= sb.length ? sa : sb, largo = sa.length <= sb.length ? sb : sa;
     const parecido = sa === sb
       || (corto.length >= 3 && (largo.startsWith(corto) || a.split(' ').includes(b) || b.split(' ').includes(a)))
-      || (Math.min(sa.length, sb.length) >= 4 && distanciaNombres(sa, sb) <= (Math.min(sa.length, sb.length) >= 7 ? 2 : 1));
+      || (Math.min(sa.length, sb.length) >= 3 && distanciaNombres(sa, sb) <= (Math.min(sa.length, sb.length) >= 7 ? 2 : 1));
     if (parecido) res.push([personas[i], personas[j]]);
   }
   return res;
@@ -2489,7 +2559,7 @@ async function vistaAscensos(cont) {
   if (pestana !== 'nueva') {
     const lista = pestana === 'pendientes' ? sinVerificar : verificadas;
     $('#asc-cuerpo').innerHTML = lista.length ? `<div class="envoltorio-tabla"><table class="datos tabla-vista asc-revisiones"><thead><tr>
-        <th data-ancho-min="180" data-sin-cortar>Revisión</th><th>Tipo</th><th class="num">Personas</th><th class="num">Informes</th>
+        <th data-ancho-min="180" data-sin-cortar>Revisión</th><th>Cuenta a</th><th class="num">Personas</th><th class="num">Informes</th>
         <th data-ancho-min="140">Cargada por</th><th>Guardada</th>${pestana === 'historial' ? '<th data-ancho-min="140">Verificada por</th><th>Verificada</th>' : '<th>Última edición</th>'}
       </tr></thead><tbody>${lista.map(r => `<tr class="fila-link" data-ir="${r.id}">
         <td class="v-nombre"><a href="#/ascensos?id=${r.id}">${esc(r.titulo || `Revisión #${r.id}`)}</a></td>
@@ -2504,7 +2574,8 @@ async function vistaAscensos(cont) {
   }
 
   /* ---------- Nueva revisión: cargar informes */
-  let datos = { revision: 'soldados', informes: [] };
+  // cuenta = qué se contabiliza en el próximo informe (queda marcado hasta que se cambie)
+  let datos = { cuenta: ['soldados'], informes: [] };
   try { const g = JSON.parse(localStorage.getItem(CLAVE_ASCENSOS)); if (g && Array.isArray(g.informes)) datos = { ...datos, ...g }; } catch {}
   const guardarLocal = () => { try { localStorage.setItem(CLAVE_ASCENSOS, JSON.stringify(datos)); } catch {} };
   let orden = { id: 'actividades', dir: -1 };
@@ -2512,21 +2583,23 @@ async function vistaAscensos(cont) {
   $('#asc-cuerpo').innerHTML = `
     <div class="ascensos">
       <section class="tarjeta asc-carga">
-        <h3>Cargar informes</h3>
-        <p class="tenue" style="margin:2px 0 14px">Pegá la lista de participantes de cada informe y agregala. Cuando estén todos, guardá la revisión para que se pueda verificar.</p>
-        <div class="campo"><span>Revisión de</span>
-          <div class="opciones-tarjeta">${Object.entries(REVISIONES_ASCENSO).map(([k, r]) => `
-            <label class="opcion-tarjeta"><input type="radio" name="revision" value="${k}" ${datos.revision === k ? 'checked' : ''}>
-              <span><strong>${esc(r.titulo)}</strong><small>${esc(r.ayuda)} Nunca Sargento en adelante.</small></span></label>`).join('')}</div>
+        <h3>Cargar informe</h3>
+        <p class="tenue" style="margin:2px 0 14px">Copiá y pegá el mensaje del informe tal cual está en Discord: la web saca el título, el tipo de actividad y los participantes. Repetí con cada informe y al final guardá la revisión.</p>
+        <div class="campo"><span>Contabilizar de este informe</span>
+          <div class="asc-cuenta">${Object.entries(GRUPOS_ASCENSO).map(([k, g]) => `
+            <label class="asc-check"><input type="checkbox" name="cuenta" value="${k}" ${datos.cuenta.includes(k) ? 'checked' : ''}>
+              <span><strong>${esc(g.titulo)}</strong><small>${esc(g.rangos().join(', '))}</small></span></label>`).join('')}
+            <small class="tenue">Queda marcado para los próximos informes hasta que lo cambies. Sargento en adelante nunca cuenta.</small></div>
         </div>
-        <label class="campo"><span>Informe <small class="tenue">(opcional: un nombre para reconocerlo)</small></span>
-          <input id="asc-titulo" maxlength="80" placeholder="Ej: Entrenamiento 18/11"></label>
-        <label class="campo"><span>Lista de participantes</span>
-          <textarea id="asc-texto" class="mono" spellcheck="false" placeholder="<SGTM Stance>&#10;<CBO1 Carter>&#10;<SDO2 Taitus> (Lider)&#10;<SDO Artyom> (segundo al mando)"></textarea></label>
+        <label class="campo"><span>Link del informe en Discord</span>
+          <input id="asc-link" type="url" class="mono" placeholder="https://discord.com/channels/…">
+          <small class="ayuda-campo">Clic derecho en el mensaje del informe → Copiar enlace del mensaje. Si el mensaje trae el link, se completa solo.</small></label>
+        <label class="campo"><span>Mensaje del informe</span>
+          <textarea id="asc-texto" class="mono" spellcheck="false" placeholder="Pegá acá el mensaje completo del informe (o solo la lista de participantes)"></textarea></label>
         <div class="asc-previa" id="asc-previa"></div>
         <div class="asc-botones">
           <button class="btn primario" id="asc-agregar">+ Agregar informe</button>
-          <span class="tenue" style="font-size:12.5px">Un rango y un nombre por renglón. "(Líder)" o "(Sublíder / segundo al mando)" al final marcan el rol.</span>
+          <span class="tenue" style="font-size:12.5px">Participantes: un rango y un nombre por renglón. "(Líder)" o "(Sublíder / segundo al mando)" marcan el rol.</span>
         </div>
       </section>
       <section class="tarjeta">
@@ -2537,35 +2610,52 @@ async function vistaAscensos(cont) {
       <section id="asc-resultado"></section>
     </div>`;
 
-  const cuenta = l => new Set(REVISIONES_ASCENSO[datos.revision].rangos().map(normRango)).has(normRango(l.grado));
+  const marcados = () => $$('input[name=cuenta]:checked', cont).map(x => x.value);
+  const opcionesTipo = sel => Object.entries(TIPOS_INFORME_ASC).map(([k, t]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(t.nombre)}</option>`).join('');
+  let tipoManual = '';   // tipo elegido a mano en la vista previa (si el título no lo dice)
   function previa() {
     const t = $('#asc-texto').value;
     if (!t.trim()) { $('#asc-previa').innerHTML = ''; return; }
-    const { lineas, noLeidas } = leerInformeAscenso(t);
-    const si = lineas.filter(cuenta), no = lineas.filter(l => !cuenta(l));
+    const inf = leerInformeAscenso(t), rangos = rangosDeGrupos(marcados());
+    if (inf.link && !$('#asc-link').value.trim()) $('#asc-link').value = inf.link;
+    const si = inf.lineas.filter(l => rangos.has(normRango(l.grado))), no = inf.lineas.filter(l => !rangos.has(normRango(l.grado)));
     const lid = si.filter(l => l.rol === 'lider'), sub = si.filter(l => l.rol === 'sub');
+    const tipo = tipoManual || inf.tipo;
     $('#asc-previa').innerHTML = `
-      <div><strong>${si.length}</strong> cuentan${lid.length ? ` · líder: ${esc(lid.map(l => l.nombre).join(', '))}` : ''}${sub.length ? ` · sublíder: ${esc(sub.map(l => l.nombre).join(', '))}` : ''}</div>
+      <div class="asc-previa-cab"><span class="dato-etiqueta">Título</span> <strong>${esc(inf.titulo || '—')}</strong></div>
+      <div class="asc-previa-cab"><span class="dato-etiqueta">Tipo</span>
+        <select class="entrada mini" id="asc-tipo" style="width:auto">${tipo ? '' : '<option value="">— Elegí el tipo —</option>'}${opcionesTipo(tipo)}</select>
+        ${inf.tipo ? '<span class="tenue">(detectado por el título)</span>' : '<span class="asc-error">No se pudo saber por el título: elegilo</span>'}</div>
+      <div><strong>${si.length}</strong> cuentan${lid.length ? ` · líder: ${esc(lid.map(l => l.nombre).join(', '))}` : ''}${sub.length ? ` · sublíder: ${esc(sub.map(l => l.nombre).join(', '))}` : ''}
+        ${si.length ? `<span class="tenue">(${esc(si.map(l => `${l.grado} ${l.nombre}`).join(', '))})</span>` : ''}</div>
       ${no.length ? `<div class="tenue">${no.length} no cuentan por rango: ${esc(no.map(l => `${l.grado} ${l.nombre}`).join(', '))}</div>` : ''}
-      ${noLeidas.length ? `<div class="asc-error">${noLeidas.length} renglón${noLeidas.length === 1 ? '' : 'es'} sin rango reconocible: ${esc(noLeidas.join(' · '))}</div>` : ''}`;
+      ${inf.noLeidas.length ? `<div class="asc-error">${inf.noLeidas.length} renglón${inf.noLeidas.length === 1 ? '' : 'es'} de participantes sin rango reconocible: ${esc(inf.noLeidas.join(' · '))}</div>` : ''}`;
+    $('#asc-tipo').onchange = ev => { tipoManual = ev.target.value; };
   }
   function pintarInformes() {
     $('#asc-n').textContent = datos.informes.length;
     $('#asc-vaciar').hidden = !datos.informes.length;
     $('#asc-informes').innerHTML = datos.informes.length ? `<ol class="asc-lista">${datos.informes.map((inf, i) => {
-      const { lineas, noLeidas } = leerInformeAscenso(inf.texto);
-      const si = lineas.filter(cuenta), lid = si.find(l => l.rol === 'lider'), sub = si.filter(l => l.rol === 'sub');
-      return `<li><div class="asc-inf"><strong>${esc(inf.titulo || `Informe ${i + 1}`)}</strong>
-          <span class="tenue">${si.length} cuentan de ${lineas.length}${lid ? ` · líder ${esc(lid.nombre)}` : ''}${sub.length ? ` · sublíder ${esc(sub.map(l => l.nombre).join(', '))}` : ''}${noLeidas.length ? ` · <span class="asc-error">${noLeidas.length} sin leer</span>` : ''}</span></div>
+      const { lineas, noLeidas } = leerInformeAscenso(inf.texto), rangos = rangosDeGrupos(inf.cuenta);
+      const si = lineas.filter(l => rangos.has(normRango(l.grado))), lid = si.find(l => l.rol === 'lider'), sub = si.filter(l => l.rol === 'sub');
+      return `<li data-i="${i}"><div class="asc-inf">
+          <strong>${esc(inf.titulo || `Informe ${i + 1}`)}</strong>
+          <span class="tenue">${si.length} cuentan de ${lineas.length}${lid ? ` · líder ${esc(lid.nombre)}` : ''}${sub.length ? ` · sublíder ${esc(sub.map(l => l.nombre).join(', '))}` : ''}${noLeidas.length ? ` · <span class="asc-error">${noLeidas.length} sin leer</span>` : ''}
+            · <a href="${esc(inf.link)}" target="_blank" rel="noopener noreferrer">Informe ↗</a></span>
+          <span class="asc-inf-opciones">
+            <select class="entrada mini" data-tipo-inf style="width:auto">${opcionesTipo(inf.tipo)}</select>
+            ${Object.entries(GRUPOS_ASCENSO).map(([k, g]) => `<label class="asc-check-mini"><input type="checkbox" data-cuenta-inf="${k}" ${inf.cuenta.includes(k) ? 'checked' : ''}> ${esc(g.titulo)}</label>`).join('')}
+          </span></div>
         <button class="btn-link" data-ver="${i}">Ver</button><button class="btn-link peligro" data-quitar="${i}">Quitar</button></li>`;
     }).join('')}</ol>` : '<div class="vacio-chico">Todavía no agregaste informes.</div>';
   }
   function pintarResultado() {
     if (!datos.informes.length) { $('#asc-resultado').innerHTML = ''; return; }
-    const lista = recontarAscenso(datos.informes, datos.revision);
+    const lista = recontarAscenso(datos.informes);
     ordenarPersonasAsc(lista, orden);
-    const tituloDef = `Revisión ${REVISIONES_ASCENSO[datos.revision].titulo} · ${new Date().toLocaleDateString('es-AR')}`;
-    $('#asc-resultado').innerHTML = resumenAscenso(lista, datos.informes.length, datos.revision) + `
+    const grupos = [...new Set(datos.informes.flatMap(x => x.cuenta))];
+    const tituloDef = `Revisión ${textoGrupos(Object.keys(GRUPOS_ASCENSO).filter(g => grupos.includes(g)))} · ${new Date().toLocaleDateString('es-AR')}`;
+    $('#asc-resultado').innerHTML = resumenAscenso(lista, datos.informes.length) + `
       <div class="envoltorio-tabla">${tablaAscenso(lista, datos.informes, orden, porNombre)}</div>
       <section class="tarjeta asc-guardar">
         <div><h3>Guardar revisión</h3>
@@ -2584,28 +2674,35 @@ async function vistaAscensos(cont) {
       if (!lista.length) return aviso('No hay ninguna persona para guardar en esta revisión.', 'error');
       ev.target.disabled = true;
       try {
-        const r = await api.crearRevisionAscenso({ titulo: $('#asc-nombre-rev').value.trim() || tituloDef, revision: datos.revision,
-          informes: datos.informes, resultado: lista });
-        datos = { revision: datos.revision, informes: [] }; guardarLocal();
+        const r = await api.crearRevisionAscenso({ titulo: $('#asc-nombre-rev').value.trim() || tituloDef,
+          revision: grupos.includes('cabos') ? 'tropa' : 'soldados', informes: datos.informes, resultado: lista });
+        datos = { cuenta: datos.cuenta, informes: [] }; guardarLocal();
         aviso('Revisión guardada. Ahora falta verificarla.');
         location.hash = `#/ascensos?id=${r.id}`;
       } catch (e) { fallo(e); ev.target.disabled = false; }
     };
   }
   const todo = () => { pintarInformes(); pintarResultado(); previa(); };
-  $('#asc-texto').oninput = previa;
-  $$('input[name=revision]', cont).forEach(r => r.onchange = () => { datos.revision = r.value; guardarLocal(); todo(); });
+  $('#asc-texto').oninput = () => { tipoManual = ''; previa(); };
+  $$('input[name=cuenta]', cont).forEach(c => c.onchange = () => {
+    if (!marcados().length) { c.checked = true; return aviso('Marcá al menos Soldados o Cabos.', 'error'); }
+    datos.cuenta = marcados(); guardarLocal(); previa();
+  });
   $('#asc-agregar').onclick = () => {
-    const texto = $('#asc-texto').value.trim();
-    if (!texto) return aviso('Pegá la lista de participantes del informe.', 'error');
-    const { lineas } = leerInformeAscenso(texto);
-    if (!lineas.length) return aviso('No se reconoció ningún participante. Cada renglón tiene que empezar con un rango, por ejemplo <SDO2 Taitus>.', 'error');
-    if (datos.informes.some(x => x.texto.trim() === texto)) return aviso('Ese informe ya está cargado.', 'error');
-    datos.informes.push({ titulo: $('#asc-titulo').value.trim() || `Informe ${datos.informes.length + 1}`, texto });
+    const texto = $('#asc-texto').value.trim(), link = $('#asc-link').value.trim();
+    if (!texto) return aviso('Pegá el mensaje del informe.', 'error');
+    if (!RE_DISCORD.test(link)) return aviso('Poné el link del mensaje del informe en Discord (https://discord.com/channels/…).', 'error');
+    if (datos.informes.some(x => x.link === link)) return aviso('Ese informe ya está cargado (mismo link).', 'error');
+    const inf = leerInformeAscenso(texto);
+    if (!inf.lineas.length) return aviso('No se encontraron participantes. Tienen que estar como <SDO2 Taitus>, uno por renglón.', 'error');
+    const tipo = $('#asc-tipo')?.value || inf.tipo;
+    if (!tipo) return aviso('Elegí el tipo de actividad del informe.', 'error');
+    const cuenta = marcados();
+    datos.informes.push({ titulo: inf.titulo || `Informe ${datos.informes.length + 1}`, link, tipo, cuenta, texto });
     guardarLocal();
-    $('#asc-texto').value = ''; $('#asc-titulo').value = '';
-    const n = lineas.filter(cuenta).length;
-    aviso(`Informe agregado: ${n} participante${n === 1 ? '' : 's'} cuentan.`);
+    $('#asc-texto').value = ''; $('#asc-link').value = ''; tipoManual = '';
+    const rangos = rangosDeGrupos(cuenta), n = inf.lineas.filter(l => rangos.has(normRango(l.grado))).length;
+    aviso(`${TIPOS_INFORME_ASC[tipo].nombre} agregado: ${n} participante${n === 1 ? '' : 's'} cuentan.`);
     todo(); $('#asc-texto').focus();
   };
   $('#asc-informes').onclick = ev => {
@@ -2613,39 +2710,59 @@ async function vistaAscensos(cont) {
     if (q) { datos.informes.splice(+q.dataset.quitar, 1); guardarLocal(); todo(); }
     if (v) verInformesAscenso([datos.informes[+v.dataset.ver]]);
   };
+  $('#asc-informes').onchange = ev => {
+    const li = ev.target.closest('[data-i]'); if (!li) return;
+    const inf = datos.informes[+li.dataset.i];
+    if (ev.target.dataset.tipoInf !== undefined) inf.tipo = ev.target.value;
+    if (ev.target.dataset.cuentaInf) {
+      const k = ev.target.dataset.cuentaInf;
+      const nueva = ev.target.checked ? [...new Set([...inf.cuenta, k])] : inf.cuenta.filter(x => x !== k);
+      if (!nueva.length) { ev.target.checked = true; return aviso('Cada informe tiene que contar al menos Soldados o Cabos.', 'error'); }
+      inf.cuenta = Object.keys(GRUPOS_ASCENSO).filter(g => nueva.includes(g));
+    }
+    guardarLocal(); pintarInformes(); pintarResultado();
+  };
   $('#asc-vaciar').onclick = async () => {
     if (!await confirmar('Vaciar informes', `¿Quitar los ${datos.informes.length} informes cargados? El recuento se borra.`, 'Vaciar')) return;
-    datos = { revision: datos.revision, informes: [] }; guardarLocal(); todo();
+    datos = { cuenta: datos.cuenta, informes: [] }; guardarLocal(); todo();
   };
   todo();
 }
 
 /* ---------- piezas compartidas */
 function ordenarPersonasAsc(lista, orden) {
-  const val = (p, id) => id === 'nombre' ? normNombreAsc(p.nombre) : id === 'grado' ? RANGOS_NORM.indexOf(normRango(p.grado)) : +p[id] || 0;
+  const val = (p, id) => id === 'nombre' ? normNombreAsc(p.nombre) : id === 'grado' ? RANGOS_NORM.indexOf(normRango(p.grado))
+    : id.startsWith('t_') ? +p.por?.[id.slice(2)] || 0 : +p[id] || 0;
   return lista.sort((a, b) => { const x = val(a, orden.id), y = val(b, orden.id); return ((x > y) - (x < y)) * orden.dir || normNombreAsc(a.nombre).localeCompare(normNombreAsc(b.nombre)); });
 }
 const siguienteOrdenAsc = (orden, id) => orden.id !== id ? { id, dir: ['nombre', 'grado'].includes(id) ? 1 : -1 } : { id, dir: -orden.dir };
-function resumenAscenso(lista, nInformes, revision) {
+function resumenAscenso(lista, nInformes) {
   const tot = k => lista.reduce((s, p) => s + (+p[k] || 0), 0);
   const t = (n, txt) => `<div class="tarjeta resumen-vista"><div class="dato-grande">${n}</div><div class="dato-etiqueta">${txt}</div></div>`;
-  return `<div class="rejilla resumen-hoja">${t(nInformes, 'Informes')}${t(lista.length, esc(REVISIONES_ASCENSO[revision]?.titulo || '') + ' distintos')}
-    ${t(tot('actividades'), 'Participaciones')}${t(tot('lider'), 'Liderazgos')}${t(tot('sub'), 'Subliderazgos')}</div>`;
+  return `<div class="rejilla resumen-hoja">${t(nInformes, 'Informes')}${t(lista.length, 'Personas')}
+    ${t(tot('actividades'), 'Actividades')}${t(tot('lider'), 'Liderazgos')}${t(tot('sub'), 'Subliderazgos')}</div>`;
 }
 function tablaAscenso(lista, informes, orden, porNombre) {
+  const tipos = tiposUsadosAsc(lista);
   const th = (id, t, num) => `<th class="${num ? 'num' : ''} ${orden?.id === id ? 'ordenada' : ''}" data-orden="${id}" ${id === 'nombre' ? 'data-ancho-min="150" data-sin-cortar' : ''}>${t}${orden?.id === id ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
-  return `<table class="datos tabla-vista"><thead><tr>${th('grado', 'Rango')}${th('nombre', 'Nombre')}${th('actividades', 'Actividades', 1)}${th('lider', 'Liderazgos', 1)}${th('sub', 'Subliderazgos', 1)}<th>En los informes</th></tr></thead>
+  const n = v => `<td class="num ${+v ? '' : 'cero'}">${+v || '–'}</td>`;
+  return `<table class="datos tabla-vista"><thead><tr>${th('grado', 'Rango')}${th('nombre', 'Nombre')}
+      ${tipos.map(t => th('t_' + t, TIPOS_INFORME_ASC[t].plural, 1)).join('')}
+      ${th('actividades', 'Total actividades', 1)}${th('lider', 'Liderazgos', 1)}${th('sub', 'Subliderazgos', 1)}<th>En los informes</th></tr></thead>
     <tbody>${lista.length ? lista.map(p => {
       const m = porNombre.get(normNombreAsc(p.nombre));
       return `<tr><td class="tenue">${esc(p.grado)}</td>
         <td class="v-nombre">${m ? `<a class="link-perfil" href="#/perfil?id=${m.id}">${esc(p.nombre)}</a>` : esc(p.nombre)}</td>
-        <td class="num"><b>${+p.actividades || 0}</b></td><td class="num ${p.lider ? '' : 'cero'}">${p.lider || '–'}</td><td class="num ${p.sub ? '' : 'cero'}">${p.sub || '–'}</td>
+        ${tipos.map(t => n(p.por?.[t])).join('')}
+        <td class="num"><b>${+p.actividades || 0}</b></td>${n(p.lider)}${n(p.sub)}
         <td class="v-texto">${esc((p.informes || []).map(i => informes[i]?.titulo || `Informe ${i + 1}`).join(', '))}</td></tr>`;
-    }).join('') : '<tr><td colspan="6" class="vacio-chico">Ningún participante entra en esta revisión.</td></tr>'}</tbody></table>`;
+    }).join('') : `<tr><td colspan="${6 + tipos.length}" class="vacio-chico">Ningún participante entra en esta revisión.</td></tr>`}</tbody></table>`;
 }
 function verInformesAscenso(informes) {
   abrirModal(informes.length === 1 ? (informes[0].titulo || 'Informe') : `Informes (${informes.length})`,
-    informes.map(inf => `${informes.length > 1 ? `<h4 style="margin:12px 0 6px">${esc(inf.titulo || 'Informe')}</h4>` : ''}<pre class="asc-pre">${esc(inf.texto)}</pre>`).join('')
+    informes.map(inf => `${informes.length > 1 ? `<h4 style="margin:12px 0 6px">${esc(inf.titulo || 'Informe')}</h4>` : ''}
+      ${inf.tipo || inf.cuenta || inf.link ? `<p class="tenue" style="margin:0 0 6px;font-size:13px">${esc(TIPOS_INFORME_ASC[inf.tipo]?.nombre || '')}${inf.cuenta ? ` · cuenta ${esc(textoGrupos(inf.cuenta))}` : ''}${inf.link ? ` · <a href="${esc(inf.link)}" target="_blank" rel="noopener noreferrer">Abrir en Discord ↗</a>` : ''}</p>` : ''}
+      <pre class="asc-pre">${esc(inf.texto)}</pre>`).join('')
     + '<div class="modal-pie"><button class="btn primario" data-cerrar>Cerrar</button></div>', c => { $('[data-cerrar]', c).onclick = cerrarModal; });
 }
 
@@ -2653,29 +2770,33 @@ function verInformesAscenso(informes) {
 async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora }) {
   let rev = await api.obtenerRevisionAscenso(id);
   if (!rev) { cont.innerHTML = '<div class="vacio">Esa revisión no existe o fue borrada. <br><br><a class="btn" href="#/ascensos?ver=pendientes">Volver</a></div>'; return; }
-  let personas = JSON.parse(JSON.stringify(rev.resultado || []));
-  personas.forEach(p => { p.k = p.k || Math.random().toString(36).slice(2, 9); p.informes = p.informes || []; });
+  let personas = JSON.parse(JSON.stringify(rev.resultado || [])).map(normalizarPersonaAsc);
   let cambios = false, orden = { id: 'actividades', dir: -1 }, otroGuardo = false;
-  const descartados = new Set();
-  const seleccion = new Set();
+  const descartados = new Set(), seleccion = new Set();
   const borrador = rev.estado === 'borrador';
   const puedeBorrar = esAdmin() || (borrador && rev.creado_por === estado.perfil.id);
-  const rangosRev = REVISIONES_ASCENSO[rev.revision].rangos();
+  const rangosRev = [...CATEGORIA_POR_RANGO.soldados, ...CATEGORIA_POR_RANGO.cabos];
+  // Tipo de cada informe (para saber de qué tipo es cada participación al juntar)
+  const tipoInf = i => rev.informes?.[i]?.tipo || 'otro';
+  const tiposVisibles = () => [...new Set([...tiposUsadosAsc(personas), ...(rev.informes || []).map(x => x.tipo).filter(Boolean)])]
+    .filter(t => TIPOS_INFORME_ASC[t]).sort((a, b) => Object.keys(TIPOS_INFORME_ASC).indexOf(a) - Object.keys(TIPOS_INFORME_ASC).indexOf(b));
+  const recalcularTotal = p => { p.actividades = Object.values(p.por).reduce((s, n) => s + (+n || 0), 0); };
 
   function marcarCambios() { cambios = true; $('#asc-estado-cambios').textContent = 'Cambios sin guardar'; $('#asc-guardar-cambios').disabled = false; }
 
   function pintar() {
     ordenarPersonasAsc(personas, orden);
+    const grupos = [...new Set((rev.informes || []).flatMap(x => gruposDeInforme(x, rev.revision)))];
     const cab = `
       <a class="btn-link" href="#/ascensos?ver=${borrador ? 'pendientes' : 'historial'}">← ${borrador ? 'Sin verificar' : 'Historial de ascensos'}</a>
       <section class="tarjeta asc-cabecera ${borrador ? '' : 'captura'}" id="asc-captura">
         <div class="asc-cab-titulo">
           <div><h2>${esc(rev.titulo || `Revisión #${rev.id}`)}</h2>
-            <div class="tenue">Revisión de ${esc(REVISIONES_ASCENSO[rev.revision].titulo)} · ${(rev.informes || []).length} informes · cargada por ${esc(autor(rev.creado_por))} el ${fechaHora(rev.creado_en)}
+            <div class="tenue">Cuenta ${esc(textoGrupos(Object.keys(GRUPOS_ASCENSO).filter(g => grupos.includes(g))))} · ${(rev.informes || []).length} informes · cargada por ${esc(autor(rev.creado_por))} el ${fechaHora(rev.creado_en)}
             ${borrador ? '' : `<br>Verificada por <strong>${esc(autor(rev.verificado_por))}</strong> el ${fechaHora(rev.verificado_en)}`}</div></div>
           <span class="pastilla ${borrador ? 'medio' : 'ok'}">${borrador ? 'Sin verificar' : '✓ Verificada'}</span>
         </div>
-        ${resumenAscenso(personas, (rev.informes || []).length, rev.revision)}
+        ${resumenAscenso(personas, (rev.informes || []).length)}
         ${borrador ? '' : `<div class="envoltorio-tabla">${tablaAscenso(personas, rev.informes || [], orden, porNombre)}</div>`}
       </section>`;
     if (!borrador) {
@@ -2695,9 +2816,11 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
       return;
     }
 
+    const tipos = tiposVisibles();
     const dups = posiblesDuplicados(personas, descartados);
     const nombresRepetidos = new Set(), vistos = new Set();
     personas.forEach(p => { const n = normNombreAsc(p.nombre); if (vistos.has(n)) nombresRepetidos.add(n); vistos.add(n); });
+    const thO = (id, t, extra = '') => `<th ${extra} data-orden="${id}">${t}${orden.id === id ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
     cont.innerHTML = cab + `
       ${otroGuardo ? '<div class="aviso-cambio">Otra persona guardó cambios en esta revisión. <button class="btn chico" id="asc-recargar">Recargar</button></div>' : ''}
       <section class="tarjeta asc-verificar">
@@ -2720,26 +2843,25 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
         </div>
         <div class="envoltorio-tabla"><table class="datos tabla-vista asc-editable"><thead><tr>
           <th style="width:34px"><input type="checkbox" id="asc-sel-todo" aria-label="Seleccionar todos"></th>
-          <th data-orden="grado">Rango${orden.id === 'grado' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
-          <th data-orden="nombre" data-ancho-min="190">Nombre${orden.id === 'nombre' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
-          <th class="num" data-orden="actividades">Actividades${orden.id === 'actividades' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
-          <th class="num" data-orden="lider">Liderazgos${orden.id === 'lider' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
-          <th class="num" data-orden="sub">Subliderazgos${orden.id === 'sub' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
+          ${thO('grado', 'Rango')}${thO('nombre', 'Nombre', 'data-ancho-min="190"')}
+          ${tipos.map(t => thO('t_' + t, TIPOS_INFORME_ASC[t].plural, 'class="num"')).join('')}
+          ${thO('actividades', 'Total', 'class="num"')}${thO('lider', 'Liderazgos', 'class="num"')}${thO('sub', 'Subliderazgos', 'class="num"')}
           <th>En los informes</th><th></th>
         </tr></thead><tbody>${personas.map(p => {
           const m = porNombre.get(normNombreAsc(p.nombre)), rep = nombresRepetidos.has(normNombreAsc(p.nombre));
+          const num = (campo, v) => `<td class="num"><input class="entrada mini num" type="number" min="0" data-campo="${campo}" value="${+v || 0}"></td>`;
           return `<tr data-k="${p.k}" class="${seleccion.has(p.k) ? 'seleccionada' : ''}">
             <td><input type="checkbox" data-sel ${seleccion.has(p.k) ? 'checked' : ''} aria-label="Seleccionar"></td>
             <td><select class="entrada mini" data-campo="grado">${[...rangosRev].reverse().map(g => `<option ${g === p.grado ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></td>
             <td><div class="asc-nombre"><input class="entrada mini ${rep ? 'error' : ''}" data-campo="nombre" value="${esc(p.nombre)}" maxlength="60">
               <span class="asc-miembro ${m ? 'ok' : ''}" title="${m ? `Está en Miembros: ${esc(m.grado)} ${esc(m.nombre)}` : 'No coincide con nadie de Miembros de la legión (revisá cómo está escrito)'}">${m ? '✓' : '?'}</span></div></td>
-            <td class="num"><input class="entrada mini num" type="number" min="0" data-campo="actividades" value="${+p.actividades || 0}"></td>
-            <td class="num"><input class="entrada mini num" type="number" min="0" data-campo="lider" value="${+p.lider || 0}"></td>
-            <td class="num"><input class="entrada mini num" type="number" min="0" data-campo="sub" value="${+p.sub || 0}"></td>
+            ${tipos.map(t => num('t_' + t, p.por[t])).join('')}
+            <td class="num"><b data-total>${p.actividades}</b></td>
+            ${num('lider', p.lider)}${num('sub', p.sub)}
             <td class="v-texto">${esc(p.informes.map(i => rev.informes?.[i]?.titulo || `Informe ${i + 1}`).join(', ') || '—')}</td>
             <td><button class="btn-link peligro" data-borrar-p="${p.k}" title="Borrar a ${esc(p.nombre)}">Borrar</button></td></tr>`;
         }).join('')}</tbody></table></div>
-        <p class="ayuda">✓ = el nombre coincide con alguien de Miembros de la legión · ? = no coincide (puede estar mal escrito). En rojo: nombre repetido, juntalo o corregilo antes de verificar.</p>
+        <p class="ayuda">✓ = el nombre coincide con alguien de Miembros de la legión · ? = no coincide (puede estar mal escrito). En rojo: nombre repetido, juntalo o corregilo antes de verificar. El total es la suma de las actividades.</p>
       </section>
       <div class="asc-acciones">${puedeBorrar ? '<button class="btn peligro" id="asc-borrar">Borrar revisión</button>' : ''}</div>`;
     eventosComunes();
@@ -2750,8 +2872,10 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
     $('#asc-ver-informes').onclick = () => verInformesAscenso(rev.informes || []);
     const c = $('#asc-copiar');
     if (c) c.onclick = async () => {
-      const txt = `${rev.titulo} (verificada)\n` + ordenarPersonasAsc([...personas], { id: 'actividades', dir: -1 }).map(p =>
-        `${p.grado} ${p.nombre}: ${p.actividades} actividad${+p.actividades === 1 ? '' : 'es'}${+p.lider ? ` · ${p.lider} liderazgo${+p.lider === 1 ? '' : 's'}` : ''}${+p.sub ? ` · ${p.sub} subliderazgo${+p.sub === 1 ? '' : 's'}` : ''}`).join('\n');
+      const txt = `${rev.titulo} (verificada)\n` + ordenarPersonasAsc([...personas], { id: 'actividades', dir: -1 }).map(p => {
+        const det = Object.keys(TIPOS_INFORME_ASC).filter(t => +p.por?.[t]).map(t => `${p.por[t]} ${TIPOS_INFORME_ASC[t].plural.toLowerCase()}`).join(', ');
+        return `${p.grado} ${p.nombre}: ${p.actividades} actividad${+p.actividades === 1 ? '' : 'es'}${det ? ` (${det})` : ''}${+p.lider ? ` · ${p.lider} liderazgo${+p.lider === 1 ? '' : 's'}` : ''}${+p.sub ? ` · ${p.sub} subliderazgo${+p.sub === 1 ? '' : 's'}` : ''}`;
+      }).join('\n');
       try { await navigator.clipboard.writeText(txt); aviso('Copiado.'); } catch { aviso('No se pudo copiar.', 'error'); }
     };
     const b = $('#asc-borrar');
@@ -2761,7 +2885,8 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
     };
   }
 
-  // Juntar varias personas en una: suma liderazgos/subliderazgos; las actividades se suman sin contar dos veces el mismo informe
+  // Juntar varias personas en una: por cada tipo de actividad se cuentan los informes sin repetir (si los dos nombres
+  // figuraban en el mismo informe cuenta una vez) más lo agregado a mano; liderazgos y subliderazgos se suman.
   function juntar(ks) {
     const grupo = personas.filter(p => ks.includes(p.k));
     if (grupo.length < 2) return;
@@ -2777,10 +2902,14 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
         ev.preventDefault();
         const queda = grupo.find(p => p.k === ev.target.queda.value);
         const informes = [...new Set(grupo.flatMap(p => p.informes))].sort((a, b) => a - b);
-        const sinInformes = grupo.reduce((s, p) => s + Math.max(0, (+p.actividades || 0) - p.informes.length), 0);   // actividades agregadas a mano
-        Object.assign(queda, {
-          actividades: informes.length + sinInformes,
-          lider: grupo.reduce((s, p) => s + (+p.lider || 0), 0), sub: grupo.reduce((s, p) => s + (+p.sub || 0), 0), informes });
+        const por = {};
+        for (const t of Object.keys(TIPOS_INFORME_ASC)) {
+          const deInformes = informes.filter(i => tipoInf(i) === t).length;
+          const aMano = grupo.reduce((s, p) => s + Math.max(0, (+p.por[t] || 0) - p.informes.filter(i => tipoInf(i) === t).length), 0);
+          if (deInformes + aMano) por[t] = deInformes + aMano;
+        }
+        Object.assign(queda, { por, lider: grupo.reduce((s, p) => s + (+p.lider || 0), 0), sub: grupo.reduce((s, p) => s + (+p.sub || 0), 0), informes });
+        recalcularTotal(queda);
         personas = personas.filter(p => p === queda || !ks.includes(p.k));
         ks.forEach(k => seleccion.delete(k));
         cerrarModal(); marcarCambios(); pintar();
@@ -2799,8 +2928,11 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
     actualizarSel();
     tabla.oninput = ev => {
       const campo = ev.target.dataset.campo; if (!campo) return;
-      const p = personas.find(x => x.k === ev.target.closest('tr').dataset.k);
-      p[campo] = ['actividades', 'lider', 'sub'].includes(campo) ? Math.max(0, parseInt(ev.target.value, 10) || 0) : ev.target.value;
+      const tr = ev.target.closest('tr'), p = personas.find(x => x.k === tr.dataset.k);
+      const n = Math.max(0, parseInt(ev.target.value, 10) || 0);
+      if (campo.startsWith('t_')) { p.por[campo.slice(2)] = n; recalcularTotal(p); $('[data-total]', tr).textContent = p.actividades; }
+      else if (['lider', 'sub'].includes(campo)) p[campo] = n;
+      else p[campo] = ev.target.value;
       marcarCambios();
     };
     tabla.onchange = ev => {
@@ -2830,7 +2962,8 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
       personas = personas.filter(p => !seleccion.has(p.k)); seleccion.clear(); marcarCambios(); pintar();
     };
     $('#asc-agregar-p').onclick = () => {
-      personas.push({ k: Math.random().toString(36).slice(2, 9), nombre: '', grado: rangosRev[0], actividades: 1, lider: 0, sub: 0, informes: [] });
+      const t = tiposVisibles()[0] || 'otro';
+      personas.push({ k: Math.random().toString(36).slice(2, 9), nombre: '', grado: rangosRev[0], por: { [t]: 1 }, actividades: 1, lider: 0, sub: 0, informes: [] });
       orden = { id: 'nombre', dir: 1 }; marcarCambios(); pintar();
       $('.asc-editable input[data-campo=nombre][value=""]')?.focus();
     };
@@ -2840,7 +2973,7 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
   }
 
   async function guardar(verificar) {
-    personas.forEach(p => { p.nombre = String(p.nombre || '').replace(/\s+/g, ' ').trim(); });
+    personas.forEach(p => { p.nombre = String(p.nombre || '').replace(/\s+/g, ' ').trim(); recalcularTotal(p); });
     if (personas.some(p => !p.nombre)) return aviso('Hay personas sin nombre: completalas o borralas.', 'error');
     const vistos = new Set(), rep = [];
     personas.forEach(p => { const n = normNombreAsc(p.nombre); if (vistos.has(n)) rep.push(p.nombre); vistos.add(n); });
