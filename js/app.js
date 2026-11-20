@@ -260,7 +260,7 @@ async function vistaInicio(cont) {
     { titulo: 'Blackout Unit',  ir: 'bu',           cant: ultimaBU ? actuales.filter(m => idsBU.has(m.id)).length : 0,
       nota: ultimaBU ? `según la planilla de ${MESES[ultimaBU % 100 - 1].toLowerCase()} ${Math.floor(ultimaBU / 100)}` : '' },
   ];
-  const tarjetas = grupos.map(g => `<div class="tarjeta tarjeta-link" data-ir="${g.ir}">
+  const tarjetas = grupos.map(g => `<div class="tarjeta">
       <div class="dato-grande">${g.cant}</div>
       <div class="dato-etiqueta">${esc(g.titulo)}</div>
       ${g.nota ? `<div class="dato-etiqueta" style="margin-top:6px;font-size:11.5px">${esc(g.nota)}</div>` : ''}
@@ -285,7 +285,6 @@ async function vistaInicio(cont) {
         <li><a class="menu-item" style="color:var(--texto)" href="#/miembros"><span class="menu-icono">☰</span>Miembros de la legión (${visibles})</a></li>
       </ul></div>
     </div>`;
-  $$('[data-ir]', cont).forEach(t => t.onclick = () => location.hash = '#/' + t.dataset.ir);
 }
 
 /* ============================================================ REGISTROS: utilidades */
