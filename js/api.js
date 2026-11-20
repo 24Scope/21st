@@ -126,6 +126,17 @@ function crearApiSupabase() {
     async crearInactividad(x) { return ok(await sb.from('inactividades').insert(x).select().single()); },
     async cancelarInactividad(id) { return ok(await sb.from('inactividades').update({ cancelada: true }).eq('id', id).select().single()); },
     async borrarInactividad(id) { ok(await sb.from('inactividades').delete().eq('id', id)); },
+    // ---- Ascensos de tropas
+    async listarRevisionesAscenso() { return ok(await sb.from('ascensos_revisiones').select('*').order('creado_en', { ascending: false })); },
+    async obtenerRevisionAscenso(id) { return ok(await sb.from('ascensos_revisiones').select('*').eq('id', id).maybeSingle()); },
+    async crearRevisionAscenso(r) { return ok(await sb.from('ascensos_revisiones').insert(r).select().single()); },
+    // Guarda solo si nadie la modificó desde que se cargó (actualizado_en igual); si no, avisa.
+    async guardarRevisionAscenso(id, cambios, actualizadoEn) {
+      const filas = ok(await sb.from('ascensos_revisiones').update(cambios).eq('id', id).eq('actualizado_en', actualizadoEn).select());
+      if (!filas.length) throw new Error('Otra persona modificó esta revisión mientras la editabas (o ya fue verificada). Recargá la página para ver la versión actual.');
+      return filas[0];
+    },
+    async borrarRevisionAscenso(id) { ok(await sb.from('ascensos_revisiones').delete().eq('id', id)); },
     // ---- Reporte de bugs (tablas foro_*): lo leen y escriben todas las cuentas aprobadas
     async listarTemasForo() {
       const filas = ok(await sb.from('foro_temas').select('*, foro_comentarios(count)'));
@@ -319,6 +330,22 @@ function crearApiDemo() {
       escribir(db); return x;
     },
     async borrarInactividad(iid) { const db = leer(); exigirAdmin(db); db.inactividades = (db.inactividades || []).filter(x => x.id !== iid); escribir(db); },
+    async listarRevisionesAscenso() { return (leer().ascensos || []).slice().sort((a, b) => b.creado_en.localeCompare(a.creado_en)); },
+    async obtenerRevisionAscenso(rid) { return (leer().ascensos || []).find(x => x.id === rid) || null; },
+    async crearRevisionAscenso(r) {
+      const db = leer(); db.ascensos = db.ascensos || []; const ahora = new Date().toISOString();
+      const n = { ...r, id: id(db), estado: 'borrador', creado_por: usuarioActual(db).id, creado_en: ahora, actualizado_en: ahora, verificado_por: null, verificado_en: null };
+      db.ascensos.push(n); escribir(db); return n;
+    },
+    async guardarRevisionAscenso(rid, cambios, actualizadoEn) {
+      const db = leer(); const x = (db.ascensos || []).find(y => y.id === rid);
+      if (!x || x.actualizado_en !== actualizadoEn) throw new Error('Otra persona modificó esta revisión mientras la editabas. Recargá la página.');
+      const ahora = new Date().toISOString();
+      Object.assign(x, cambios, { actualizado_en: ahora, actualizado_por: usuarioActual(db).id },
+        cambios.estado === 'verificada' ? { verificado_por: usuarioActual(db).id, verificado_en: ahora } : cambios.estado === 'borrador' ? { verificado_por: null, verificado_en: null } : {});
+      escribir(db); return x;
+    },
+    async borrarRevisionAscenso(rid) { const db = leer(); db.ascensos = (db.ascensos || []).filter(x => x.id !== rid); escribir(db); },
     async listarTemasForo() {
       const db = leer();
       return (db.foroTemas || []).map(t => ({ ...t, n_comentarios: (db.foroComentarios || []).filter(c => c.tema_id === t.id).length }));

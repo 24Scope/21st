@@ -2384,14 +2384,16 @@ window.addEventListener('hashchange', cerrarMenuInact);
 document.addEventListener('scroll', cerrarMenuInact, true);
 
 /* ============================================================ ASCENSOS DE TROPAS
-   Se pegan las listas de participantes de varios informes y se recuentan, por persona, las actividades,
-   los liderazgos y los subliderazgos. Solo cuentan los rangos de la revisión elegida (nunca Sargento en adelante).
-   Todo queda en este navegador: no se guarda en la base de datos. */
+   1) Se pegan las listas de participantes de varios informes y se recuentan, por persona, actividades, liderazgos
+      y subliderazgos. Solo cuentan los rangos de la revisión elegida (nunca Sargento en adelante).
+   2) Quien la cargó la guarda: queda pública "sin verificar" y cualquiera puede corregirla (juntar nombres, borrar, editar).
+   3) "Verificar y guardar" la deja fija en el historial, lista para la captura de Discord. */
 const REVISIONES_ASCENSO = {
   soldados: { titulo: 'Soldados', ayuda: 'Cuenta solo SDO, SDO2 y SDO1.', rangos: () => CATEGORIA_POR_RANGO.soldados },
   tropa:    { titulo: 'Soldados y Cabos', ayuda: 'Cuenta de SDO hasta CBOM.', rangos: () => [...CATEGORIA_POR_RANGO.soldados, ...CATEGORIA_POR_RANGO.cabos] },
 };
 const CLAVE_ASCENSOS = 'bd21_ascensos_v1';
+const normNombreAsc = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 // Lee una lista como "<SDO2 Taitus> (Lider)". Devuelve { lineas: [{ grado, nombre, rol }], noLeidas: [texto] }.
 function leerInformeAscenso(texto) {
@@ -2400,13 +2402,11 @@ function leerInformeAscenso(texto) {
   for (const cruda of String(texto || '').split(/\r?\n/)) {
     const l = cruda.trim();
     if (!l) continue;
-    // Rol entre paréntesis al final (puede estar dentro o fuera de los < >)
     const rolTxt = (/\(([^)]*)\)/.exec(l)?.[1] || '').toLowerCase();
     const sinRol = l.replace(/\([^)]*\)/g, ' ').replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
     const partes = sinRol.split(' ');
     let grado = null, resto = partes.slice(1);
-    // El rango puede venir en dos partes ("SDO 1", "CMD B")
-    if (partes.length > 2) {
+    if (partes.length > 2) {     // el rango puede venir en dos partes ("SDO 1", "CMD B")
       const dos = rangos.find(x => x.n === normRango(partes[0] + partes[1]) && partes[1].length <= 2);
       if (dos) { grado = dos.r; resto = partes.slice(2); }
     }
@@ -2419,20 +2419,101 @@ function leerInformeAscenso(texto) {
   return { lineas, noLeidas };
 }
 
+// Recuento por persona. informes = [{ titulo, texto }]. Cada persona: { k, nombre, grado, actividades, lider, sub, informes: [índices] }
+function recontarAscenso(informes, revision) {
+  const rangos = new Set(REVISIONES_ASCENSO[revision].rangos().map(normRango));
+  const personas = new Map();
+  informes.forEach((inf, i) => {
+    for (const l of leerInformeAscenso(inf.texto).lineas) {
+      if (!rangos.has(normRango(l.grado))) continue;
+      const k = normNombreAsc(l.nombre);
+      if (!personas.has(k)) personas.set(k, { k: Math.random().toString(36).slice(2, 9), nombre: l.nombre, grado: l.grado, actividades: 0, lider: 0, sub: 0, informes: [] });
+      const p = personas.get(k);
+      p.grado = l.grado;
+      if (!p.informes.includes(i)) { p.informes.push(i); p.actividades++; }
+      if (l.rol === 'lider') p.lider++;
+      if (l.rol === 'sub') p.sub++;
+    }
+  });
+  return [...personas.values()];
+}
+
+// Distancia de edición (para sugerir nombres parecidos)
+function distanciaNombres(a, b) {
+  if (Math.abs(a.length - b.length) > 3) return 9;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function posiblesDuplicados(personas, descartados) {
+  const res = [];
+  for (let i = 0; i < personas.length; i++) for (let j = i + 1; j < personas.length; j++) {
+    const a = normNombreAsc(personas[i].nombre), b = normNombreAsc(personas[j].nombre);
+    if (!a || !b || descartados.has([personas[i].k, personas[j].k].sort().join('|'))) continue;
+    const sa = a.replace(/[^a-z0-9]/g, ''), sb = b.replace(/[^a-z0-9]/g, '');
+    const corto = sa.length <= sb.length ? sa : sb, largo = sa.length <= sb.length ? sb : sa;
+    const parecido = sa === sb
+      || (corto.length >= 3 && (largo.startsWith(corto) || a.split(' ').includes(b) || b.split(' ').includes(a)))
+      || (Math.min(sa.length, sb.length) >= 4 && distanciaNombres(sa, sb) <= (Math.min(sa.length, sb.length) >= 7 ? 2 : 1));
+    if (parecido) res.push([personas[i], personas[j]]);
+  }
+  return res;
+}
+
 async function vistaAscensos(cont) {
+  const idRev = +(estado.params?.get('id') || 0);
+  const [miembros, perfiles] = await Promise.all([api.listarMiembros().catch(() => []), api.listarPerfiles().catch(() => [])]);
+  const porNombre = new Map(miembros.map(m => [normNombreAsc(m.nombre), m]));
+  const autor = uid => {
+    const p = perfiles.find(x => x.id === uid); if (!p) return '—';
+    const m = miembros.find(x => x.id === p.miembro_id);
+    return m ? `${m.grado} ${m.nombre}` : p.nombre;
+  };
+  const fechaHora = f => f ? new Date(f).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  if (idRev) return detalleRevisionAscenso(cont, idRev, { porNombre, autor, fechaHora });
+
+  const pestana = estado.params?.get('ver') || 'nueva';
+  const revisiones = await api.listarRevisionesAscenso();
+  const sinVerificar = revisiones.filter(r => r.estado === 'borrador'), verificadas = revisiones.filter(r => r.estado === 'verificada');
+  cont.innerHTML = `
+    <div class="pestanas-vista">
+      <a href="#/ascensos" class="${pestana === 'nueva' ? 'activa' : ''}">Nueva revisión</a>
+      <a href="#/ascensos?ver=pendientes" class="${pestana === 'pendientes' ? 'activa' : ''}">Sin verificar <span class="etiqueta">${sinVerificar.length}</span></a>
+      <a href="#/ascensos?ver=historial" class="${pestana === 'historial' ? 'activa' : ''}">Historial de ascensos <span class="etiqueta">${verificadas.length}</span></a>
+    </div>
+    <div id="asc-cuerpo"></div>`;
+  estado.limpiezas.push(api.suscribir('ascensos_revisiones', () => { if (pestana !== 'nueva' && $('#modal-fondo').hidden) navegar(); }));
+
+  if (pestana !== 'nueva') {
+    const lista = pestana === 'pendientes' ? sinVerificar : verificadas;
+    $('#asc-cuerpo').innerHTML = lista.length ? `<div class="envoltorio-tabla"><table class="datos tabla-vista asc-revisiones"><thead><tr>
+        <th data-ancho-min="180" data-sin-cortar>Revisión</th><th>Tipo</th><th class="num">Personas</th><th class="num">Informes</th>
+        <th data-ancho-min="140">Cargada por</th><th>Guardada</th>${pestana === 'historial' ? '<th data-ancho-min="140">Verificada por</th><th>Verificada</th>' : '<th>Última edición</th>'}
+      </tr></thead><tbody>${lista.map(r => `<tr class="fila-link" data-ir="${r.id}">
+        <td class="v-nombre"><a href="#/ascensos?id=${r.id}">${esc(r.titulo || `Revisión #${r.id}`)}</a></td>
+        <td>${esc(REVISIONES_ASCENSO[r.revision]?.titulo || r.revision)}</td>
+        <td class="num">${(r.resultado || []).length}</td><td class="num">${(r.informes || []).length}</td>
+        <td>${esc(autor(r.creado_por))}</td><td class="tenue">${fechaHora(r.creado_en)}</td>
+        ${pestana === 'historial' ? `<td>${esc(autor(r.verificado_por))}</td><td class="tenue">${fechaHora(r.verificado_en)}</td>` : `<td class="tenue">${haceCuanto(r.actualizado_en)}</td>`}
+      </tr>`).join('')}</tbody></table></div>`
+      : `<div class="vacio">${pestana === 'pendientes' ? 'No hay revisiones esperando verificación.' : 'Todavía no hay revisiones verificadas.'}</div>`;
+    $('#asc-cuerpo').onclick = ev => { const tr = ev.target.closest('[data-ir]'); if (tr && !ev.target.closest('a')) location.hash = `#/ascensos?id=${tr.dataset.ir}`; };
+    return;
+  }
+
+  /* ---------- Nueva revisión: cargar informes */
   let datos = { revision: 'soldados', informes: [] };
   try { const g = JSON.parse(localStorage.getItem(CLAVE_ASCENSOS)); if (g && Array.isArray(g.informes)) datos = { ...datos, ...g }; } catch {}
   const guardarLocal = () => { try { localStorage.setItem(CLAVE_ASCENSOS, JSON.stringify(datos)); } catch {} };
-  const miembros = await api.listarMiembros().catch(() => []);
-  const normNombre = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
-  const porNombre = new Map(miembros.map(m => [normNombre(m.nombre), m]));
   let orden = { id: 'actividades', dir: -1 };
 
-  cont.innerHTML = `
+  $('#asc-cuerpo').innerHTML = `
     <div class="ascensos">
       <section class="tarjeta asc-carga">
-        <h3>Cargar informe</h3>
-        <p class="tenue" style="margin:2px 0 14px">Pegá la lista de participantes de cada informe y agregala. Al final vas a ver cuántas actividades, liderazgos y subliderazgos tuvo cada uno.</p>
+        <h3>Cargar informes</h3>
+        <p class="tenue" style="margin:2px 0 14px">Pegá la lista de participantes de cada informe y agregala. Cuando estén todos, guardá la revisión para que se pueda verificar.</p>
         <div class="campo"><span>Revisión de</span>
           <div class="opciones-tarjeta">${Object.entries(REVISIONES_ASCENSO).map(([k, r]) => `
             <label class="opcion-tarjeta"><input type="radio" name="revision" value="${k}" ${datos.revision === k ? 'checked' : ''}>
@@ -2456,92 +2537,61 @@ async function vistaAscensos(cont) {
       <section id="asc-resultado"></section>
     </div>`;
 
-  const rangosRevision = () => new Set(REVISIONES_ASCENSO[datos.revision].rangos().map(normRango));
-  const cuenta = l => rangosRevision().has(normRango(l.grado));
-
+  const cuenta = l => new Set(REVISIONES_ASCENSO[datos.revision].rangos().map(normRango)).has(normRango(l.grado));
   function previa() {
     const t = $('#asc-texto').value;
     if (!t.trim()) { $('#asc-previa').innerHTML = ''; return; }
     const { lineas, noLeidas } = leerInformeAscenso(t);
     const si = lineas.filter(cuenta), no = lineas.filter(l => !cuenta(l));
+    const lid = si.filter(l => l.rol === 'lider'), sub = si.filter(l => l.rol === 'sub');
     $('#asc-previa').innerHTML = `
-      <div><strong>${si.length}</strong> cuentan${si.filter(l => l.rol === 'lider').length ? ` · líder: ${esc(si.filter(l => l.rol === 'lider').map(l => l.nombre).join(', '))}` : ''}${si.filter(l => l.rol === 'sub').length ? ` · sublíder: ${esc(si.filter(l => l.rol === 'sub').map(l => l.nombre).join(', '))}` : ''}</div>
+      <div><strong>${si.length}</strong> cuentan${lid.length ? ` · líder: ${esc(lid.map(l => l.nombre).join(', '))}` : ''}${sub.length ? ` · sublíder: ${esc(sub.map(l => l.nombre).join(', '))}` : ''}</div>
       ${no.length ? `<div class="tenue">${no.length} no cuentan por rango: ${esc(no.map(l => `${l.grado} ${l.nombre}`).join(', '))}</div>` : ''}
       ${noLeidas.length ? `<div class="asc-error">${noLeidas.length} renglón${noLeidas.length === 1 ? '' : 'es'} sin rango reconocible: ${esc(noLeidas.join(' · '))}</div>` : ''}`;
   }
-
   function pintarInformes() {
     $('#asc-n').textContent = datos.informes.length;
     $('#asc-vaciar').hidden = !datos.informes.length;
     $('#asc-informes').innerHTML = datos.informes.length ? `<ol class="asc-lista">${datos.informes.map((inf, i) => {
       const { lineas, noLeidas } = leerInformeAscenso(inf.texto);
-      const si = lineas.filter(cuenta);
-      const lid = si.find(l => l.rol === 'lider'), sub = si.filter(l => l.rol === 'sub');
-      return `<li><div class="asc-inf">
-          <strong>${esc(inf.titulo || `Informe ${i + 1}`)}</strong>
-          <span class="tenue">${si.length} cuentan de ${lineas.length}${lid ? ` · líder ${esc(lid.nombre)}` : ''}${sub.length ? ` · sublíder ${esc(sub.map(l => l.nombre).join(', '))}` : ''}${noLeidas.length ? ` · <span class="asc-error">${noLeidas.length} sin leer</span>` : ''}</span>
-        </div>
-        <button class="btn-link" data-ver="${i}">Ver</button>
-        <button class="btn-link peligro" data-quitar="${i}" aria-label="Quitar informe">Quitar</button></li>`;
+      const si = lineas.filter(cuenta), lid = si.find(l => l.rol === 'lider'), sub = si.filter(l => l.rol === 'sub');
+      return `<li><div class="asc-inf"><strong>${esc(inf.titulo || `Informe ${i + 1}`)}</strong>
+          <span class="tenue">${si.length} cuentan de ${lineas.length}${lid ? ` · líder ${esc(lid.nombre)}` : ''}${sub.length ? ` · sublíder ${esc(sub.map(l => l.nombre).join(', '))}` : ''}${noLeidas.length ? ` · <span class="asc-error">${noLeidas.length} sin leer</span>` : ''}</span></div>
+        <button class="btn-link" data-ver="${i}">Ver</button><button class="btn-link peligro" data-quitar="${i}">Quitar</button></li>`;
     }).join('')}</ol>` : '<div class="vacio-chico">Todavía no agregaste informes.</div>';
   }
-
   function pintarResultado() {
-    const personas = new Map();
-    datos.informes.forEach((inf, i) => {
-      const vistos = new Set();
-      for (const l of leerInformeAscenso(inf.texto).lineas.filter(cuenta)) {
-        const k = normNombre(l.nombre);
-        if (!personas.has(k)) personas.set(k, { nombre: l.nombre, grado: l.grado, actividades: 0, lider: 0, sub: 0, informes: [] });
-        const p = personas.get(k);
-        p.grado = l.grado;                       // el rango del informe más reciente cargado
-        if (!vistos.has(k)) { p.actividades++; p.informes.push(inf.titulo || `Informe ${i + 1}`); vistos.add(k); }
-        if (l.rol === 'lider') p.lider++;
-        if (l.rol === 'sub') p.sub++;
-      }
-    });
-    const lista = [...personas.values()];
     if (!datos.informes.length) { $('#asc-resultado').innerHTML = ''; return; }
-    const val = (p, id) => id === 'nombre' ? p.nombre.toLowerCase() : id === 'grado' ? RANGOS_NORM.indexOf(normRango(p.grado)) : p[id];
-    lista.sort((a, b) => { const x = val(a, orden.id), y = val(b, orden.id); return ((x > y) - (x < y)) * orden.dir || a.nombre.localeCompare(b.nombre); });
-    const th = (id, t, num) => `<th class="${num ? 'num' : ''} ${orden.id === id ? 'ordenada' : ''}" data-orden="${id}" ${id === 'nombre' ? 'data-ancho-min="150" data-sin-cortar' : ''}>${t}${orden.id === id ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
-    const tot = k => lista.reduce((s, p) => s + p[k], 0);
-    $('#asc-resultado').innerHTML = `
-      <div class="rejilla resumen-hoja">
-        <div class="tarjeta resumen-vista"><div class="dato-grande">${datos.informes.length}</div><div class="dato-etiqueta">Informes</div></div>
-        <div class="tarjeta resumen-vista"><div class="dato-grande">${lista.length}</div><div class="dato-etiqueta">${esc(REVISIONES_ASCENSO[datos.revision].titulo)} distintos</div></div>
-        <div class="tarjeta resumen-vista"><div class="dato-grande">${tot('actividades')}</div><div class="dato-etiqueta">Participaciones</div></div>
-        <div class="tarjeta resumen-vista"><div class="dato-grande">${tot('lider')}</div><div class="dato-etiqueta">Liderazgos</div></div>
-        <div class="tarjeta resumen-vista"><div class="dato-grande">${tot('sub')}</div><div class="dato-etiqueta">Subliderazgos</div></div>
-      </div>
-      <div class="herramientas"><h3 style="margin:0">Recuento por persona</h3><span class="espacio"></span>
-        <button class="btn chico" id="asc-copiar">Copiar resultado</button><button class="btn chico" id="asc-csv">Exportar CSV</button></div>
-      <div class="envoltorio-tabla"><table class="datos tabla-vista"><thead><tr>
-        ${th('grado', 'Rango')}${th('nombre', 'Nombre')}${th('actividades', 'Actividades', 1)}${th('lider', 'Liderazgos', 1)}${th('sub', 'Subliderazgos', 1)}<th>En los informes</th>
-      </tr></thead><tbody>${lista.length ? lista.map(p => {
-        const m = porNombre.get(normNombre(p.nombre));
-        return `<tr><td class="tenue">${esc(p.grado)}</td>
-          <td class="v-nombre">${m ? `<a class="link-perfil" href="#/perfil?id=${m.id}">${esc(p.nombre)}</a>` : esc(p.nombre)}</td>
-          <td class="num"><b>${p.actividades}</b></td><td class="num ${p.lider ? '' : 'cero'}">${p.lider || '–'}</td><td class="num ${p.sub ? '' : 'cero'}">${p.sub || '–'}</td>
-          <td class="v-texto">${esc(p.informes.join(', '))}</td></tr>`;
-      }).join('') : `<tr><td colspan="6" class="vacio-chico">Ningún participante de los informes entra en la revisión de ${esc(REVISIONES_ASCENSO[datos.revision].titulo)}.</td></tr>`}</tbody></table></div>
-      <p class="ayuda">Cada informe suma como máximo 1 actividad por persona aunque figure dos veces. Las personas se juntan por nombre (sin importar mayúsculas ni tildes); si alguien ascendió entre informes se muestra con el rango del último informe cargado.</p>`;
+    const lista = recontarAscenso(datos.informes, datos.revision);
+    ordenarPersonasAsc(lista, orden);
+    const tituloDef = `Revisión ${REVISIONES_ASCENSO[datos.revision].titulo} · ${new Date().toLocaleDateString('es-AR')}`;
+    $('#asc-resultado').innerHTML = resumenAscenso(lista, datos.informes.length, datos.revision) + `
+      <div class="envoltorio-tabla">${tablaAscenso(lista, datos.informes, orden, porNombre)}</div>
+      <section class="tarjeta asc-guardar">
+        <div><h3>Guardar revisión</h3>
+          <p class="tenue">Queda pública como <strong>sin verificar</strong>. Ahí cualquiera puede corregir nombres repetidos o mal escritos antes de verificarla.</p></div>
+        <div class="asc-guardar-form">
+          <input class="entrada" id="asc-nombre-rev" maxlength="120" value="${esc(datos.tituloRev || tituloDef)}">
+          <button class="btn primario" id="asc-guardar">Guardar revisión</button>
+        </div>
+      </section>`;
     $('#asc-resultado thead').onclick = ev => {
       const t = ev.target.closest('[data-orden]'); if (!t) return;
-      const id = t.dataset.orden, ini = ['nombre', 'grado'].includes(id) ? 1 : -1;
-      orden = orden.id !== id ? { id, dir: ini } : { id, dir: -orden.dir };
-      pintarResultado();
+      orden = siguienteOrdenAsc(orden, t.dataset.orden); pintarResultado();
     };
-    const filasTexto = () => lista.map(p => [p.grado, p.nombre, p.actividades, p.lider, p.sub]);
-    $('#asc-csv').onclick = () => descargar(`ascensos_${datos.revision}_${fechaISO(new Date())}.csv`,
-      [['Rango', 'Nombre', 'Actividades', 'Liderazgos', 'Subliderazgos'], ...filasTexto()].map(f => f.map(celdaCSV).join(';')).join('\r\n'));
-    $('#asc-copiar').onclick = async () => {
-      const txt = `Recuento ${REVISIONES_ASCENSO[datos.revision].titulo} (${datos.informes.length} informes)\n`
-        + filasTexto().map(([g, n, a, l, s]) => `${g} ${n}: ${a} actividad${a === 1 ? '' : 'es'}${l ? ` · ${l} liderazgo${l === 1 ? '' : 's'}` : ''}${s ? ` · ${s} subliderazgo${s === 1 ? '' : 's'}` : ''}`).join('\n');
-      try { await navigator.clipboard.writeText(txt); aviso('Resultado copiado.'); } catch { aviso('No se pudo copiar.', 'error'); }
+    $('#asc-nombre-rev').oninput = ev => { datos.tituloRev = ev.target.value; guardarLocal(); };
+    $('#asc-guardar').onclick = async ev => {
+      if (!lista.length) return aviso('No hay ninguna persona para guardar en esta revisión.', 'error');
+      ev.target.disabled = true;
+      try {
+        const r = await api.crearRevisionAscenso({ titulo: $('#asc-nombre-rev').value.trim() || tituloDef, revision: datos.revision,
+          informes: datos.informes, resultado: lista });
+        datos = { revision: datos.revision, informes: [] }; guardarLocal();
+        aviso('Revisión guardada. Ahora falta verificarla.');
+        location.hash = `#/ascensos?id=${r.id}`;
+      } catch (e) { fallo(e); ev.target.disabled = false; }
     };
   }
-
   const todo = () => { pintarInformes(); pintarResultado(); previa(); };
   $('#asc-texto').oninput = previa;
   $$('input[name=revision]', cont).forEach(r => r.onchange = () => { datos.revision = r.value; guardarLocal(); todo(); });
@@ -2551,24 +2601,270 @@ async function vistaAscensos(cont) {
     const { lineas } = leerInformeAscenso(texto);
     if (!lineas.length) return aviso('No se reconoció ningún participante. Cada renglón tiene que empezar con un rango, por ejemplo <SDO2 Taitus>.', 'error');
     if (datos.informes.some(x => x.texto.trim() === texto)) return aviso('Ese informe ya está cargado.', 'error');
-    datos.informes.push({ titulo: $('#asc-titulo').value.trim(), texto });
+    datos.informes.push({ titulo: $('#asc-titulo').value.trim() || `Informe ${datos.informes.length + 1}`, texto });
     guardarLocal();
     $('#asc-texto').value = ''; $('#asc-titulo').value = '';
-    aviso(`Informe agregado: ${lineas.filter(cuenta).length} participante${lineas.filter(cuenta).length === 1 ? '' : 's'} cuentan.`);
+    const n = lineas.filter(cuenta).length;
+    aviso(`Informe agregado: ${n} participante${n === 1 ? '' : 's'} cuentan.`);
     todo(); $('#asc-texto').focus();
   };
   $('#asc-informes').onclick = ev => {
     const q = ev.target.closest('[data-quitar]'), v = ev.target.closest('[data-ver]');
     if (q) { datos.informes.splice(+q.dataset.quitar, 1); guardarLocal(); todo(); }
-    if (v) { const inf = datos.informes[+v.dataset.ver];
-      abrirModal(inf.titulo || `Informe ${+v.dataset.ver + 1}`, `<pre class="asc-pre">${esc(inf.texto)}</pre><div class="modal-pie"><button class="btn primario" data-cerrar>Cerrar</button></div>`,
-        c => { $('[data-cerrar]', c).onclick = cerrarModal; }); }
+    if (v) verInformesAscenso([datos.informes[+v.dataset.ver]]);
   };
   $('#asc-vaciar').onclick = async () => {
     if (!await confirmar('Vaciar informes', `¿Quitar los ${datos.informes.length} informes cargados? El recuento se borra.`, 'Vaciar')) return;
-    datos.informes = []; guardarLocal(); todo();
+    datos = { revision: datos.revision, informes: [] }; guardarLocal(); todo();
   };
   todo();
+}
+
+/* ---------- piezas compartidas */
+function ordenarPersonasAsc(lista, orden) {
+  const val = (p, id) => id === 'nombre' ? normNombreAsc(p.nombre) : id === 'grado' ? RANGOS_NORM.indexOf(normRango(p.grado)) : +p[id] || 0;
+  return lista.sort((a, b) => { const x = val(a, orden.id), y = val(b, orden.id); return ((x > y) - (x < y)) * orden.dir || normNombreAsc(a.nombre).localeCompare(normNombreAsc(b.nombre)); });
+}
+const siguienteOrdenAsc = (orden, id) => orden.id !== id ? { id, dir: ['nombre', 'grado'].includes(id) ? 1 : -1 } : { id, dir: -orden.dir };
+function resumenAscenso(lista, nInformes, revision) {
+  const tot = k => lista.reduce((s, p) => s + (+p[k] || 0), 0);
+  const t = (n, txt) => `<div class="tarjeta resumen-vista"><div class="dato-grande">${n}</div><div class="dato-etiqueta">${txt}</div></div>`;
+  return `<div class="rejilla resumen-hoja">${t(nInformes, 'Informes')}${t(lista.length, esc(REVISIONES_ASCENSO[revision]?.titulo || '') + ' distintos')}
+    ${t(tot('actividades'), 'Participaciones')}${t(tot('lider'), 'Liderazgos')}${t(tot('sub'), 'Subliderazgos')}</div>`;
+}
+function tablaAscenso(lista, informes, orden, porNombre) {
+  const th = (id, t, num) => `<th class="${num ? 'num' : ''} ${orden?.id === id ? 'ordenada' : ''}" data-orden="${id}" ${id === 'nombre' ? 'data-ancho-min="150" data-sin-cortar' : ''}>${t}${orden?.id === id ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+  return `<table class="datos tabla-vista"><thead><tr>${th('grado', 'Rango')}${th('nombre', 'Nombre')}${th('actividades', 'Actividades', 1)}${th('lider', 'Liderazgos', 1)}${th('sub', 'Subliderazgos', 1)}<th>En los informes</th></tr></thead>
+    <tbody>${lista.length ? lista.map(p => {
+      const m = porNombre.get(normNombreAsc(p.nombre));
+      return `<tr><td class="tenue">${esc(p.grado)}</td>
+        <td class="v-nombre">${m ? `<a class="link-perfil" href="#/perfil?id=${m.id}">${esc(p.nombre)}</a>` : esc(p.nombre)}</td>
+        <td class="num"><b>${+p.actividades || 0}</b></td><td class="num ${p.lider ? '' : 'cero'}">${p.lider || '–'}</td><td class="num ${p.sub ? '' : 'cero'}">${p.sub || '–'}</td>
+        <td class="v-texto">${esc((p.informes || []).map(i => informes[i]?.titulo || `Informe ${i + 1}`).join(', '))}</td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="vacio-chico">Ningún participante entra en esta revisión.</td></tr>'}</tbody></table>`;
+}
+function verInformesAscenso(informes) {
+  abrirModal(informes.length === 1 ? (informes[0].titulo || 'Informe') : `Informes (${informes.length})`,
+    informes.map(inf => `${informes.length > 1 ? `<h4 style="margin:12px 0 6px">${esc(inf.titulo || 'Informe')}</h4>` : ''}<pre class="asc-pre">${esc(inf.texto)}</pre>`).join('')
+    + '<div class="modal-pie"><button class="btn primario" data-cerrar>Cerrar</button></div>', c => { $('[data-cerrar]', c).onclick = cerrarModal; });
+}
+
+/* ---------- Detalle de una revisión guardada: verificar (corregir) o ver la verificada */
+async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora }) {
+  let rev = await api.obtenerRevisionAscenso(id);
+  if (!rev) { cont.innerHTML = '<div class="vacio">Esa revisión no existe o fue borrada. <br><br><a class="btn" href="#/ascensos?ver=pendientes">Volver</a></div>'; return; }
+  let personas = JSON.parse(JSON.stringify(rev.resultado || []));
+  personas.forEach(p => { p.k = p.k || Math.random().toString(36).slice(2, 9); p.informes = p.informes || []; });
+  let cambios = false, orden = { id: 'actividades', dir: -1 }, otroGuardo = false;
+  const descartados = new Set();
+  const seleccion = new Set();
+  const borrador = rev.estado === 'borrador';
+  const puedeBorrar = esAdmin() || (borrador && rev.creado_por === estado.perfil.id);
+  const rangosRev = REVISIONES_ASCENSO[rev.revision].rangos();
+
+  function marcarCambios() { cambios = true; $('#asc-estado-cambios').textContent = 'Cambios sin guardar'; $('#asc-guardar-cambios').disabled = false; }
+
+  function pintar() {
+    ordenarPersonasAsc(personas, orden);
+    const cab = `
+      <a class="btn-link" href="#/ascensos?ver=${borrador ? 'pendientes' : 'historial'}">← ${borrador ? 'Sin verificar' : 'Historial de ascensos'}</a>
+      <section class="tarjeta asc-cabecera ${borrador ? '' : 'captura'}" id="asc-captura">
+        <div class="asc-cab-titulo">
+          <div><h2>${esc(rev.titulo || `Revisión #${rev.id}`)}</h2>
+            <div class="tenue">Revisión de ${esc(REVISIONES_ASCENSO[rev.revision].titulo)} · ${(rev.informes || []).length} informes · cargada por ${esc(autor(rev.creado_por))} el ${fechaHora(rev.creado_en)}
+            ${borrador ? '' : `<br>Verificada por <strong>${esc(autor(rev.verificado_por))}</strong> el ${fechaHora(rev.verificado_en)}`}</div></div>
+          <span class="pastilla ${borrador ? 'medio' : 'ok'}">${borrador ? 'Sin verificar' : '✓ Verificada'}</span>
+        </div>
+        ${resumenAscenso(personas, (rev.informes || []).length, rev.revision)}
+        ${borrador ? '' : `<div class="envoltorio-tabla">${tablaAscenso(personas, rev.informes || [], orden, porNombre)}</div>`}
+      </section>`;
+    if (!borrador) {
+      cont.innerHTML = cab + `<div class="asc-acciones">
+          <button class="btn" id="asc-ver-informes">Ver informes originales</button>
+          <button class="btn" id="asc-copiar">Copiar como texto</button>
+          ${esAdmin() ? '<button class="btn" id="asc-desverificar">Volver a sin verificar</button>' : ''}
+          ${puedeBorrar ? '<button class="btn peligro" id="asc-borrar">Borrar revisión</button>' : ''}
+        </div><p class="ayuda">Lista para sacarle una captura y mandarla por Discord.</p>`;
+      eventosComunes();
+      $('#asc-captura thead').onclick = ev => { const t = ev.target.closest('[data-orden]'); if (t) { orden = siguienteOrdenAsc(orden, t.dataset.orden); pintar(); } };
+      const des = $('#asc-desverificar');
+      if (des) des.onclick = async () => {
+        if (!await confirmar('Volver a sin verificar', 'La revisión vuelve a "sin verificar" y se puede corregir de nuevo.', 'Continuar')) return;
+        try { rev = await api.guardarRevisionAscenso(rev.id, { estado: 'borrador' }, rev.actualizado_en); navegar(); } catch (e) { fallo(e); }
+      };
+      return;
+    }
+
+    const dups = posiblesDuplicados(personas, descartados);
+    const nombresRepetidos = new Set(), vistos = new Set();
+    personas.forEach(p => { const n = normNombreAsc(p.nombre); if (vistos.has(n)) nombresRepetidos.add(n); vistos.add(n); });
+    cont.innerHTML = cab + `
+      ${otroGuardo ? '<div class="aviso-cambio">Otra persona guardó cambios en esta revisión. <button class="btn chico" id="asc-recargar">Recargar</button></div>' : ''}
+      <section class="tarjeta asc-verificar">
+        <h3>Verificación</h3>
+        <p class="tenue" style="margin:2px 0 12px">Revisá que no haya nombres repetidos o mal escritos, gente con dos nombres (juntalos) o nombres de más (borralos). Podés editar cualquier dato. Cuando esté todo bien, tocá <strong>Verificar y guardar</strong>.</p>
+        ${dups.length ? `<div class="asc-dups"><strong>Posibles duplicados (${dups.length})</strong>
+          ${dups.slice(0, 12).map(([a, b]) => `<div class="asc-dup">
+            <span>¿<b>${esc(a.grado)} ${esc(a.nombre)}</b> <span class="tenue">(${a.actividades})</span> y <b>${esc(b.grado)} ${esc(b.nombre)}</b> <span class="tenue">(${b.actividades})</span> son la misma persona?</span>
+            <button class="btn chico" data-juntar="${a.k},${b.k}">Juntar</button><button class="btn-link" data-descartar="${a.k},${b.k}">No</button></div>`).join('')}</div>`
+          : '<div class="tenue asc-sin-dups">✓ No se encontraron nombres parecidos.</div>'}
+        <div class="herramientas asc-herr">
+          <button class="btn chico" id="asc-juntar-sel" disabled>Juntar seleccionados</button>
+          <button class="btn chico peligro" id="asc-borrar-sel" disabled>Borrar seleccionados</button>
+          <button class="btn chico" id="asc-agregar-p">+ Agregar persona</button>
+          <button class="btn chico" id="asc-ver-informes">Ver informes originales</button>
+          <span class="espacio"></span>
+          <span class="tenue" id="asc-estado-cambios">${cambios ? 'Cambios sin guardar' : ''}</span>
+          <button class="btn chico" id="asc-guardar-cambios" ${cambios ? '' : 'disabled'}>Guardar cambios</button>
+          <button class="btn primario" id="asc-verificar">✓ Verificar y guardar</button>
+        </div>
+        <div class="envoltorio-tabla"><table class="datos tabla-vista asc-editable"><thead><tr>
+          <th style="width:34px"><input type="checkbox" id="asc-sel-todo" aria-label="Seleccionar todos"></th>
+          <th data-orden="grado">Rango${orden.id === 'grado' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
+          <th data-orden="nombre" data-ancho-min="190">Nombre${orden.id === 'nombre' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
+          <th class="num" data-orden="actividades">Actividades${orden.id === 'actividades' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
+          <th class="num" data-orden="lider">Liderazgos${orden.id === 'lider' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
+          <th class="num" data-orden="sub">Subliderazgos${orden.id === 'sub' ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>
+          <th>En los informes</th><th></th>
+        </tr></thead><tbody>${personas.map(p => {
+          const m = porNombre.get(normNombreAsc(p.nombre)), rep = nombresRepetidos.has(normNombreAsc(p.nombre));
+          return `<tr data-k="${p.k}" class="${seleccion.has(p.k) ? 'seleccionada' : ''}">
+            <td><input type="checkbox" data-sel ${seleccion.has(p.k) ? 'checked' : ''} aria-label="Seleccionar"></td>
+            <td><select class="entrada mini" data-campo="grado">${[...rangosRev].reverse().map(g => `<option ${g === p.grado ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></td>
+            <td><div class="asc-nombre"><input class="entrada mini ${rep ? 'error' : ''}" data-campo="nombre" value="${esc(p.nombre)}" maxlength="60">
+              <span class="asc-miembro ${m ? 'ok' : ''}" title="${m ? `Está en Miembros: ${esc(m.grado)} ${esc(m.nombre)}` : 'No coincide con nadie de Miembros de la legión (revisá cómo está escrito)'}">${m ? '✓' : '?'}</span></div></td>
+            <td class="num"><input class="entrada mini num" type="number" min="0" data-campo="actividades" value="${+p.actividades || 0}"></td>
+            <td class="num"><input class="entrada mini num" type="number" min="0" data-campo="lider" value="${+p.lider || 0}"></td>
+            <td class="num"><input class="entrada mini num" type="number" min="0" data-campo="sub" value="${+p.sub || 0}"></td>
+            <td class="v-texto">${esc(p.informes.map(i => rev.informes?.[i]?.titulo || `Informe ${i + 1}`).join(', ') || '—')}</td>
+            <td><button class="btn-link peligro" data-borrar-p="${p.k}" title="Borrar a ${esc(p.nombre)}">Borrar</button></td></tr>`;
+        }).join('')}</tbody></table></div>
+        <p class="ayuda">✓ = el nombre coincide con alguien de Miembros de la legión · ? = no coincide (puede estar mal escrito). En rojo: nombre repetido, juntalo o corregilo antes de verificar.</p>
+      </section>
+      <div class="asc-acciones">${puedeBorrar ? '<button class="btn peligro" id="asc-borrar">Borrar revisión</button>' : ''}</div>`;
+    eventosComunes();
+    eventosEdicion();
+  }
+
+  function eventosComunes() {
+    $('#asc-ver-informes').onclick = () => verInformesAscenso(rev.informes || []);
+    const c = $('#asc-copiar');
+    if (c) c.onclick = async () => {
+      const txt = `${rev.titulo} (verificada)\n` + ordenarPersonasAsc([...personas], { id: 'actividades', dir: -1 }).map(p =>
+        `${p.grado} ${p.nombre}: ${p.actividades} actividad${+p.actividades === 1 ? '' : 'es'}${+p.lider ? ` · ${p.lider} liderazgo${+p.lider === 1 ? '' : 's'}` : ''}${+p.sub ? ` · ${p.sub} subliderazgo${+p.sub === 1 ? '' : 's'}` : ''}`).join('\n');
+      try { await navigator.clipboard.writeText(txt); aviso('Copiado.'); } catch { aviso('No se pudo copiar.', 'error'); }
+    };
+    const b = $('#asc-borrar');
+    if (b) b.onclick = async () => {
+      if (!await confirmar('Borrar revisión', `¿Borrar "${rev.titulo}"? No se puede deshacer.`, 'Borrar')) return;
+      try { await api.borrarRevisionAscenso(rev.id); aviso('Revisión borrada.'); location.hash = '#/ascensos?ver=' + (borrador ? 'pendientes' : 'historial'); } catch (e) { fallo(e); }
+    };
+  }
+
+  // Juntar varias personas en una: suma liderazgos/subliderazgos; las actividades se suman sin contar dos veces el mismo informe
+  function juntar(ks) {
+    const grupo = personas.filter(p => ks.includes(p.k));
+    if (grupo.length < 2) return;
+    abrirModal('Juntar personas', `
+      <p style="margin:0 0 12px">Se van a juntar ${grupo.length} nombres en uno solo. ¿Con qué nombre y rango queda?</p>
+      <form id="form-juntar">
+        ${grupo.map((p, i) => `<label class="opcion-tarjeta" style="margin-bottom:6px"><input type="radio" name="queda" value="${p.k}" ${i === 0 ? 'checked' : ''}>
+          <span><strong>${esc(p.grado)} ${esc(p.nombre)}</strong><small>${p.actividades} actividades · ${p.lider} liderazgos · ${p.sub} subliderazgos</small></span></label>`).join('')}
+        <div class="modal-pie"><button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn primario">Juntar</button></div>
+      </form>`, c => {
+      $('[data-cancelar]', c).onclick = cerrarModal;
+      $('#form-juntar', c).onsubmit = ev => {
+        ev.preventDefault();
+        const queda = grupo.find(p => p.k === ev.target.queda.value);
+        const informes = [...new Set(grupo.flatMap(p => p.informes))].sort((a, b) => a - b);
+        const sinInformes = grupo.reduce((s, p) => s + Math.max(0, (+p.actividades || 0) - p.informes.length), 0);   // actividades agregadas a mano
+        Object.assign(queda, {
+          actividades: informes.length + sinInformes,
+          lider: grupo.reduce((s, p) => s + (+p.lider || 0), 0), sub: grupo.reduce((s, p) => s + (+p.sub || 0), 0), informes });
+        personas = personas.filter(p => p === queda || !ks.includes(p.k));
+        ks.forEach(k => seleccion.delete(k));
+        cerrarModal(); marcarCambios(); pintar();
+        aviso(`Juntados en ${queda.grado} ${queda.nombre}: ${queda.actividades} actividades.`);
+      };
+    });
+  }
+
+  function eventosEdicion() {
+    const tabla = $('.asc-editable');
+    const actualizarSel = () => {
+      $('#asc-juntar-sel').disabled = seleccion.size < 2; $('#asc-borrar-sel').disabled = !seleccion.size;
+      $('#asc-juntar-sel').textContent = `Juntar seleccionados${seleccion.size > 1 ? ` (${seleccion.size})` : ''}`;
+      $('#asc-borrar-sel').textContent = `Borrar seleccionados${seleccion.size ? ` (${seleccion.size})` : ''}`;
+    };
+    actualizarSel();
+    tabla.oninput = ev => {
+      const campo = ev.target.dataset.campo; if (!campo) return;
+      const p = personas.find(x => x.k === ev.target.closest('tr').dataset.k);
+      p[campo] = ['actividades', 'lider', 'sub'].includes(campo) ? Math.max(0, parseInt(ev.target.value, 10) || 0) : ev.target.value;
+      marcarCambios();
+    };
+    tabla.onchange = ev => {
+      if (ev.target.dataset.sel !== undefined) {
+        const k = ev.target.closest('tr').dataset.k;
+        ev.target.checked ? seleccion.add(k) : seleccion.delete(k);
+        ev.target.closest('tr').classList.toggle('seleccionada', ev.target.checked); actualizarSel(); return;
+      }
+      if (ev.target.dataset.campo === 'nombre') pintar();   // para volver a buscar duplicados y la marca de Miembros
+    };
+    $('#asc-sel-todo').onchange = ev => { personas.forEach(p => ev.target.checked ? seleccion.add(p.k) : seleccion.delete(p.k)); pintar(); };
+    tabla.querySelector('thead').onclick = ev => { const t = ev.target.closest('[data-orden]'); if (t) { orden = siguienteOrdenAsc(orden, t.dataset.orden); pintar(); } };
+    tabla.onclick = async ev => {
+      const b = ev.target.closest('[data-borrar-p]'); if (!b) return;
+      const p = personas.find(x => x.k === b.dataset.borrarP);
+      if (!await confirmar('Borrar persona', `¿Sacar a ${p.grado} ${p.nombre} de esta revisión?`, 'Borrar')) return;
+      personas = personas.filter(x => x !== p); seleccion.delete(p.k); marcarCambios(); pintar();
+    };
+    $('.asc-verificar').addEventListener('click', ev => {
+      const j = ev.target.closest('[data-juntar]'), d = ev.target.closest('[data-descartar]');
+      if (j) juntar(j.dataset.juntar.split(','));
+      if (d) { descartados.add(d.dataset.descartar.split(',').sort().join('|')); pintar(); }
+    });
+    $('#asc-juntar-sel').onclick = () => juntar([...seleccion]);
+    $('#asc-borrar-sel').onclick = async () => {
+      if (!await confirmar('Borrar personas', `¿Sacar a ${seleccion.size} persona${seleccion.size === 1 ? '' : 's'} de esta revisión?`, 'Borrar')) return;
+      personas = personas.filter(p => !seleccion.has(p.k)); seleccion.clear(); marcarCambios(); pintar();
+    };
+    $('#asc-agregar-p').onclick = () => {
+      personas.push({ k: Math.random().toString(36).slice(2, 9), nombre: '', grado: rangosRev[0], actividades: 1, lider: 0, sub: 0, informes: [] });
+      orden = { id: 'nombre', dir: 1 }; marcarCambios(); pintar();
+      $('.asc-editable input[data-campo=nombre][value=""]')?.focus();
+    };
+    $('#asc-guardar-cambios').onclick = () => guardar(false);
+    $('#asc-verificar').onclick = () => guardar(true);
+    const rc = $('#asc-recargar'); if (rc) rc.onclick = () => navegar();
+  }
+
+  async function guardar(verificar) {
+    personas.forEach(p => { p.nombre = String(p.nombre || '').replace(/\s+/g, ' ').trim(); });
+    if (personas.some(p => !p.nombre)) return aviso('Hay personas sin nombre: completalas o borralas.', 'error');
+    const vistos = new Set(), rep = [];
+    personas.forEach(p => { const n = normNombreAsc(p.nombre); if (vistos.has(n)) rep.push(p.nombre); vistos.add(n); });
+    if (rep.length) return aviso(`Hay nombres repetidos (${rep.join(', ')}): juntalos antes de guardar.`, 'error');
+    if (verificar) {
+      const dups = posiblesDuplicados(personas, descartados).length;
+      if (!await confirmar('Verificar y guardar', `Se guarda la revisión con ${personas.length} personas y queda verificada en el historial. Después ya no se puede modificar.`
+        + (dups ? ` Todavía hay ${dups} posible${dups === 1 ? '' : 's'} duplicado${dups === 1 ? '' : 's'} sin revisar.` : ''), 'Verificar')) return;
+    }
+    try {
+      rev = await api.guardarRevisionAscenso(rev.id, { resultado: personas, ...(verificar ? { estado: 'verificada' } : {}) }, rev.actualizado_en);
+      cambios = false; otroGuardo = false;
+      aviso(verificar ? 'Revisión verificada. Ya está en el historial de ascensos.' : 'Cambios guardados.');
+      if (verificar) navegar(); else pintar();
+    } catch (e) { fallo(e); }
+  }
+
+  estado.limpiezas.push(api.suscribir('ascensos_revisiones', async p => {
+    if ((p?.new?.id ?? p?.old?.id) !== rev.id) return;
+    if (p?.new?.actualizado_en && p.new.actualizado_en === rev.actualizado_en) return;   // fue un guardado propio
+    if (!cambios && $('#modal-fondo').hidden) { navegar(); return; }
+    otroGuardo = true; pintar();
+  }));
+  pintar();
 }
 
 /* ============================================================ USUARIOS */
