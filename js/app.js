@@ -202,7 +202,7 @@ function pintarChipPermiso() {
 }
 
 function seccionesVisibles() {
-  return SECCIONES.filter(s => estado.perfil.rango >= s.rangoMinimo);
+  return SECCIONES.filter(s => !s.oculta && estado.perfil.rango >= s.rangoMinimo);
 }
 
 function pintarMenu() {
@@ -230,7 +230,7 @@ function navegar() {
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
   cont.scrollTop = 0;
 
-  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad };
+  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad, ascensos: vistaAscensos };
   const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
   Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
 }
@@ -2382,6 +2382,194 @@ document.addEventListener('click', ev => {
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape') cerrarMenuInact(); });
 window.addEventListener('hashchange', cerrarMenuInact);
 document.addEventListener('scroll', cerrarMenuInact, true);
+
+/* ============================================================ ASCENSOS DE TROPAS
+   Se pegan las listas de participantes de varios informes y se recuentan, por persona, las actividades,
+   los liderazgos y los subliderazgos. Solo cuentan los rangos de la revisión elegida (nunca Sargento en adelante).
+   Todo queda en este navegador: no se guarda en la base de datos. */
+const REVISIONES_ASCENSO = {
+  soldados: { titulo: 'Soldados', ayuda: 'Cuenta solo SDO, SDO2 y SDO1.', rangos: () => CATEGORIA_POR_RANGO.soldados },
+  tropa:    { titulo: 'Soldados y Cabos', ayuda: 'Cuenta de SDO hasta CBOM.', rangos: () => [...CATEGORIA_POR_RANGO.soldados, ...CATEGORIA_POR_RANGO.cabos] },
+};
+const CLAVE_ASCENSOS = 'bd21_ascensos_v1';
+
+// Lee una lista como "<SDO2 Taitus> (Lider)". Devuelve { lineas: [{ grado, nombre, rol }], noLeidas: [texto] }.
+function leerInformeAscenso(texto) {
+  const rangos = RANGOS_LEGION.map(r => ({ r, n: normRango(r) }));
+  const lineas = [], noLeidas = [];
+  for (const cruda of String(texto || '').split(/\r?\n/)) {
+    const l = cruda.trim();
+    if (!l) continue;
+    // Rol entre paréntesis al final (puede estar dentro o fuera de los < >)
+    const rolTxt = (/\(([^)]*)\)/.exec(l)?.[1] || '').toLowerCase();
+    const sinRol = l.replace(/\([^)]*\)/g, ' ').replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
+    const partes = sinRol.split(' ');
+    let grado = null, resto = partes.slice(1);
+    // El rango puede venir en dos partes ("SDO 1", "CMD B")
+    if (partes.length > 2) {
+      const dos = rangos.find(x => x.n === normRango(partes[0] + partes[1]) && partes[1].length <= 2);
+      if (dos) { grado = dos.r; resto = partes.slice(2); }
+    }
+    if (!grado) { const uno = rangos.find(x => x.n === normRango(partes[0])); if (uno) grado = uno.r; }
+    const nombre = resto.join(' ').trim();
+    if (!grado || !nombre) { noLeidas.push(l); continue; }
+    const rol = /sub|segundo|2do|2°|co-?l[ií]der/.test(rolTxt) ? 'sub' : /l[ií]der|lead/.test(rolTxt) ? 'lider' : '';
+    lineas.push({ grado, nombre, rol });
+  }
+  return { lineas, noLeidas };
+}
+
+async function vistaAscensos(cont) {
+  let datos = { revision: 'soldados', informes: [] };
+  try { const g = JSON.parse(localStorage.getItem(CLAVE_ASCENSOS)); if (g && Array.isArray(g.informes)) datos = { ...datos, ...g }; } catch {}
+  const guardarLocal = () => { try { localStorage.setItem(CLAVE_ASCENSOS, JSON.stringify(datos)); } catch {} };
+  const miembros = await api.listarMiembros().catch(() => []);
+  const normNombre = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const porNombre = new Map(miembros.map(m => [normNombre(m.nombre), m]));
+  let orden = { id: 'actividades', dir: -1 };
+
+  cont.innerHTML = `
+    <div class="ascensos">
+      <section class="tarjeta asc-carga">
+        <h3>Cargar informe</h3>
+        <p class="tenue" style="margin:2px 0 14px">Pegá la lista de participantes de cada informe y agregala. Al final vas a ver cuántas actividades, liderazgos y subliderazgos tuvo cada uno.</p>
+        <div class="campo"><span>Revisión de</span>
+          <div class="opciones-tarjeta">${Object.entries(REVISIONES_ASCENSO).map(([k, r]) => `
+            <label class="opcion-tarjeta"><input type="radio" name="revision" value="${k}" ${datos.revision === k ? 'checked' : ''}>
+              <span><strong>${esc(r.titulo)}</strong><small>${esc(r.ayuda)} Nunca Sargento en adelante.</small></span></label>`).join('')}</div>
+        </div>
+        <label class="campo"><span>Informe <small class="tenue">(opcional: un nombre para reconocerlo)</small></span>
+          <input id="asc-titulo" maxlength="80" placeholder="Ej: Entrenamiento 18/11"></label>
+        <label class="campo"><span>Lista de participantes</span>
+          <textarea id="asc-texto" class="mono" spellcheck="false" placeholder="<SGTM Stance>&#10;<CBO1 Carter>&#10;<SDO2 Taitus> (Lider)&#10;<SDO Artyom> (segundo al mando)"></textarea></label>
+        <div class="asc-previa" id="asc-previa"></div>
+        <div class="asc-botones">
+          <button class="btn primario" id="asc-agregar">+ Agregar informe</button>
+          <span class="tenue" style="font-size:12.5px">Un rango y un nombre por renglón. "(Líder)" o "(Sublíder / segundo al mando)" al final marcan el rol.</span>
+        </div>
+      </section>
+      <section class="tarjeta">
+        <div class="asc-cab"><h3>Informes cargados <span class="etiqueta" id="asc-n">0</span></h3>
+          <button class="btn chico peligro" id="asc-vaciar">Vaciar todo</button></div>
+        <div id="asc-informes"></div>
+      </section>
+      <section id="asc-resultado"></section>
+    </div>`;
+
+  const rangosRevision = () => new Set(REVISIONES_ASCENSO[datos.revision].rangos().map(normRango));
+  const cuenta = l => rangosRevision().has(normRango(l.grado));
+
+  function previa() {
+    const t = $('#asc-texto').value;
+    if (!t.trim()) { $('#asc-previa').innerHTML = ''; return; }
+    const { lineas, noLeidas } = leerInformeAscenso(t);
+    const si = lineas.filter(cuenta), no = lineas.filter(l => !cuenta(l));
+    $('#asc-previa').innerHTML = `
+      <div><strong>${si.length}</strong> cuentan${si.filter(l => l.rol === 'lider').length ? ` · líder: ${esc(si.filter(l => l.rol === 'lider').map(l => l.nombre).join(', '))}` : ''}${si.filter(l => l.rol === 'sub').length ? ` · sublíder: ${esc(si.filter(l => l.rol === 'sub').map(l => l.nombre).join(', '))}` : ''}</div>
+      ${no.length ? `<div class="tenue">${no.length} no cuentan por rango: ${esc(no.map(l => `${l.grado} ${l.nombre}`).join(', '))}</div>` : ''}
+      ${noLeidas.length ? `<div class="asc-error">${noLeidas.length} renglón${noLeidas.length === 1 ? '' : 'es'} sin rango reconocible: ${esc(noLeidas.join(' · '))}</div>` : ''}`;
+  }
+
+  function pintarInformes() {
+    $('#asc-n').textContent = datos.informes.length;
+    $('#asc-vaciar').hidden = !datos.informes.length;
+    $('#asc-informes').innerHTML = datos.informes.length ? `<ol class="asc-lista">${datos.informes.map((inf, i) => {
+      const { lineas, noLeidas } = leerInformeAscenso(inf.texto);
+      const si = lineas.filter(cuenta);
+      const lid = si.find(l => l.rol === 'lider'), sub = si.filter(l => l.rol === 'sub');
+      return `<li><div class="asc-inf">
+          <strong>${esc(inf.titulo || `Informe ${i + 1}`)}</strong>
+          <span class="tenue">${si.length} cuentan de ${lineas.length}${lid ? ` · líder ${esc(lid.nombre)}` : ''}${sub.length ? ` · sublíder ${esc(sub.map(l => l.nombre).join(', '))}` : ''}${noLeidas.length ? ` · <span class="asc-error">${noLeidas.length} sin leer</span>` : ''}</span>
+        </div>
+        <button class="btn-link" data-ver="${i}">Ver</button>
+        <button class="btn-link peligro" data-quitar="${i}" aria-label="Quitar informe">Quitar</button></li>`;
+    }).join('')}</ol>` : '<div class="vacio-chico">Todavía no agregaste informes.</div>';
+  }
+
+  function pintarResultado() {
+    const personas = new Map();
+    datos.informes.forEach((inf, i) => {
+      const vistos = new Set();
+      for (const l of leerInformeAscenso(inf.texto).lineas.filter(cuenta)) {
+        const k = normNombre(l.nombre);
+        if (!personas.has(k)) personas.set(k, { nombre: l.nombre, grado: l.grado, actividades: 0, lider: 0, sub: 0, informes: [] });
+        const p = personas.get(k);
+        p.grado = l.grado;                       // el rango del informe más reciente cargado
+        if (!vistos.has(k)) { p.actividades++; p.informes.push(inf.titulo || `Informe ${i + 1}`); vistos.add(k); }
+        if (l.rol === 'lider') p.lider++;
+        if (l.rol === 'sub') p.sub++;
+      }
+    });
+    const lista = [...personas.values()];
+    if (!datos.informes.length) { $('#asc-resultado').innerHTML = ''; return; }
+    const val = (p, id) => id === 'nombre' ? p.nombre.toLowerCase() : id === 'grado' ? RANGOS_NORM.indexOf(normRango(p.grado)) : p[id];
+    lista.sort((a, b) => { const x = val(a, orden.id), y = val(b, orden.id); return ((x > y) - (x < y)) * orden.dir || a.nombre.localeCompare(b.nombre); });
+    const th = (id, t, num) => `<th class="${num ? 'num' : ''} ${orden.id === id ? 'ordenada' : ''}" data-orden="${id}" ${id === 'nombre' ? 'data-ancho-min="150" data-sin-cortar' : ''}>${t}${orden.id === id ? (orden.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+    const tot = k => lista.reduce((s, p) => s + p[k], 0);
+    $('#asc-resultado').innerHTML = `
+      <div class="rejilla resumen-hoja">
+        <div class="tarjeta resumen-vista"><div class="dato-grande">${datos.informes.length}</div><div class="dato-etiqueta">Informes</div></div>
+        <div class="tarjeta resumen-vista"><div class="dato-grande">${lista.length}</div><div class="dato-etiqueta">${esc(REVISIONES_ASCENSO[datos.revision].titulo)} distintos</div></div>
+        <div class="tarjeta resumen-vista"><div class="dato-grande">${tot('actividades')}</div><div class="dato-etiqueta">Participaciones</div></div>
+        <div class="tarjeta resumen-vista"><div class="dato-grande">${tot('lider')}</div><div class="dato-etiqueta">Liderazgos</div></div>
+        <div class="tarjeta resumen-vista"><div class="dato-grande">${tot('sub')}</div><div class="dato-etiqueta">Subliderazgos</div></div>
+      </div>
+      <div class="herramientas"><h3 style="margin:0">Recuento por persona</h3><span class="espacio"></span>
+        <button class="btn chico" id="asc-copiar">Copiar resultado</button><button class="btn chico" id="asc-csv">Exportar CSV</button></div>
+      <div class="envoltorio-tabla"><table class="datos tabla-vista"><thead><tr>
+        ${th('grado', 'Rango')}${th('nombre', 'Nombre')}${th('actividades', 'Actividades', 1)}${th('lider', 'Liderazgos', 1)}${th('sub', 'Subliderazgos', 1)}<th>En los informes</th>
+      </tr></thead><tbody>${lista.length ? lista.map(p => {
+        const m = porNombre.get(normNombre(p.nombre));
+        return `<tr><td class="tenue">${esc(p.grado)}</td>
+          <td class="v-nombre">${m ? `<a class="link-perfil" href="#/perfil?id=${m.id}">${esc(p.nombre)}</a>` : esc(p.nombre)}</td>
+          <td class="num"><b>${p.actividades}</b></td><td class="num ${p.lider ? '' : 'cero'}">${p.lider || '–'}</td><td class="num ${p.sub ? '' : 'cero'}">${p.sub || '–'}</td>
+          <td class="v-texto">${esc(p.informes.join(', '))}</td></tr>`;
+      }).join('') : `<tr><td colspan="6" class="vacio-chico">Ningún participante de los informes entra en la revisión de ${esc(REVISIONES_ASCENSO[datos.revision].titulo)}.</td></tr>`}</tbody></table></div>
+      <p class="ayuda">Cada informe suma como máximo 1 actividad por persona aunque figure dos veces. Las personas se juntan por nombre (sin importar mayúsculas ni tildes); si alguien ascendió entre informes se muestra con el rango del último informe cargado.</p>`;
+    $('#asc-resultado thead').onclick = ev => {
+      const t = ev.target.closest('[data-orden]'); if (!t) return;
+      const id = t.dataset.orden, ini = ['nombre', 'grado'].includes(id) ? 1 : -1;
+      orden = orden.id !== id ? { id, dir: ini } : { id, dir: -orden.dir };
+      pintarResultado();
+    };
+    const filasTexto = () => lista.map(p => [p.grado, p.nombre, p.actividades, p.lider, p.sub]);
+    $('#asc-csv').onclick = () => descargar(`ascensos_${datos.revision}_${fechaISO(new Date())}.csv`,
+      [['Rango', 'Nombre', 'Actividades', 'Liderazgos', 'Subliderazgos'], ...filasTexto()].map(f => f.map(celdaCSV).join(';')).join('\r\n'));
+    $('#asc-copiar').onclick = async () => {
+      const txt = `Recuento ${REVISIONES_ASCENSO[datos.revision].titulo} (${datos.informes.length} informes)\n`
+        + filasTexto().map(([g, n, a, l, s]) => `${g} ${n}: ${a} actividad${a === 1 ? '' : 'es'}${l ? ` · ${l} liderazgo${l === 1 ? '' : 's'}` : ''}${s ? ` · ${s} subliderazgo${s === 1 ? '' : 's'}` : ''}`).join('\n');
+      try { await navigator.clipboard.writeText(txt); aviso('Resultado copiado.'); } catch { aviso('No se pudo copiar.', 'error'); }
+    };
+  }
+
+  const todo = () => { pintarInformes(); pintarResultado(); previa(); };
+  $('#asc-texto').oninput = previa;
+  $$('input[name=revision]', cont).forEach(r => r.onchange = () => { datos.revision = r.value; guardarLocal(); todo(); });
+  $('#asc-agregar').onclick = () => {
+    const texto = $('#asc-texto').value.trim();
+    if (!texto) return aviso('Pegá la lista de participantes del informe.', 'error');
+    const { lineas } = leerInformeAscenso(texto);
+    if (!lineas.length) return aviso('No se reconoció ningún participante. Cada renglón tiene que empezar con un rango, por ejemplo <SDO2 Taitus>.', 'error');
+    if (datos.informes.some(x => x.texto.trim() === texto)) return aviso('Ese informe ya está cargado.', 'error');
+    datos.informes.push({ titulo: $('#asc-titulo').value.trim(), texto });
+    guardarLocal();
+    $('#asc-texto').value = ''; $('#asc-titulo').value = '';
+    aviso(`Informe agregado: ${lineas.filter(cuenta).length} participante${lineas.filter(cuenta).length === 1 ? '' : 's'} cuentan.`);
+    todo(); $('#asc-texto').focus();
+  };
+  $('#asc-informes').onclick = ev => {
+    const q = ev.target.closest('[data-quitar]'), v = ev.target.closest('[data-ver]');
+    if (q) { datos.informes.splice(+q.dataset.quitar, 1); guardarLocal(); todo(); }
+    if (v) { const inf = datos.informes[+v.dataset.ver];
+      abrirModal(inf.titulo || `Informe ${+v.dataset.ver + 1}`, `<pre class="asc-pre">${esc(inf.texto)}</pre><div class="modal-pie"><button class="btn primario" data-cerrar>Cerrar</button></div>`,
+        c => { $('[data-cerrar]', c).onclick = cerrarModal; }); }
+  };
+  $('#asc-vaciar').onclick = async () => {
+    if (!await confirmar('Vaciar informes', `¿Quitar los ${datos.informes.length} informes cargados? El recuento se borra.`, 'Vaciar')) return;
+    datos.informes = []; guardarLocal(); todo();
+  };
+  todo();
+}
 
 /* ============================================================ USUARIOS */
 async function vistaUsuarios(cont) {

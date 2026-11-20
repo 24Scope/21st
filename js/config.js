@@ -220,8 +220,10 @@ const SECCIONES = [
   { id: 'suboficiales', titulo: 'Actividad Suboficiales',            icono: '◆', grupo: 'Oficialidad',  rangoMinimo: 1 },
   { id: 'elites',       titulo: 'Actividad Élites',                  icono: '▲', grupo: 'Oficialidad',  rangoMinimo: 1 },
   { id: 'bu',           titulo: 'Actividad BU',                      icono: '⬢', grupo: 'Oficialidad',  rangoMinimo: 1 },
-  { id: 'soldados',     titulo: 'Actividad Soldados (7 días)',       icono: '•', grupo: 'Oficialidad',  rangoMinimo: 1 },
-  { id: 'cabos',        titulo: 'Actividad Cabos (14 días)',         icono: '●', grupo: 'Oficialidad',  rangoMinimo: 1 },
+  { id: 'ascensos',     titulo: 'Ascensos de tropas',                icono: '⇧', grupo: 'Oficialidad',  rangoMinimo: 1 },
+  // Ocultas por ahora (oculta: true). Para volver a mostrarlas, sacá "oculta: true".
+  { id: 'soldados',     titulo: 'Actividad Soldados (7 días)',       icono: '•', grupo: 'Oficialidad',  rangoMinimo: 1, oculta: true },
+  { id: 'cabos',        titulo: 'Actividad Cabos (14 días)',         icono: '●', grupo: 'Oficialidad',  rangoMinimo: 1, oculta: true },
   { id: 'miembros',     titulo: 'Miembros de la legión',             icono: '☰', grupo: 'Comandancia',  rangoMinimo: 1 },
   { id: 'oficiales',    titulo: 'Actividad Oficiales y Comandantes', icono: '★', grupo: 'Comandancia',  rangoMinimo: 1 },
   { id: 'usuarios',     titulo: 'Usuarios y rangos',                 icono: '⚙', grupo: 'Comandancia',  rangoMinimo: 8 },

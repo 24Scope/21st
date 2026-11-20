@@ -405,6 +405,26 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .chip-yo strong { color: var(--texto); }
 .fila-campos.tres { grid-template-columns: 2fr 1.2fr 1fr; }
 .historial-actividad { min-width: 0; }
+/* Ascensos de tropas */
+.ascensos { display: grid; gap: 16px; max-width: 1100px; }
+.asc-carga h3, .asc-cab h3 { margin: 0; }
+.asc-carga textarea { min-height: 190px; font-size: 13px; line-height: 1.5; }
+.asc-previa { font-size: 13px; display: grid; gap: 4px; margin: -4px 0 12px; }
+.asc-previa:empty { display: none; }
+.asc-error { color: var(--peligro); }
+.asc-botones { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.asc-cab { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.asc-cab h3 { display: flex; gap: 8px; align-items: center; }
+.asc-lista { margin: 0; padding: 0 0 0 22px; display: grid; gap: 2px; }
+.asc-lista li { padding: 6px 0; border-bottom: 1px solid var(--borde); }
+.asc-lista li:last-child { border-bottom: 0; }
+.asc-lista li > * { vertical-align: middle; }
+.asc-lista li { display: list-item; }
+.asc-inf { display: inline-flex; flex-direction: column; min-width: 0; width: calc(100% - 110px); font-size: 13.5px; }
+.asc-inf .tenue { font-size: 12.5px; }
+.asc-lista .btn-link { margin-left: 8px; }
+.asc-pre { white-space: pre-wrap; font-size: 13px; background: var(--superficie-2); padding: 12px; border-radius: 8px; max-height: 60vh; overflow: auto; }
+
 /* Registros: modo Vista */
 .selector-modo { display: inline-flex; border: 1px solid var(--borde-fuerte); border-radius: 8px; overflow: hidden; }
 .selector-modo button { border: 0; background: var(--superficie); color: var(--texto-2); font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; }
