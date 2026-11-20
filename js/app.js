@@ -391,7 +391,9 @@ function ajustarTablaDatos(tabla) {
     const tipico = !medidas.length ? 0
       : interactivo ? medidas[medidas.length - 1]
       : anchoTipico(medidas);
-    anchos.push(Math.round(Math.max(ANCHO_DATOS.min, minCab, interactivo ? tipico : Math.min(ANCHO_DATOS.max, tipico))));
+    // Columnas marcadas en el encabezado: data-sin-cortar (entra el texto más largo) y data-ancho-min (ancho mínimo en px)
+    const sinCortar = th.hasAttribute("data-sin-cortar") && medidas.length ? medidas[medidas.length - 1] : 0;
+    anchos.push(Math.round(Math.max(ANCHO_DATOS.min, +th.dataset.anchoMin || 0, minCab, sinCortar, interactivo ? tipico : Math.min(ANCHO_DATOS.max, tipico))));
   }
   tabla.classList.remove('midiendo');
   colgroupAjustado(tabla, anchos, true);
@@ -939,7 +941,7 @@ async function vistaMiembros(cont) {
       ${editable ? '<button class="btn primario" id="btn-nuevo">+ Agregar miembro</button>' : ''}
     </div>
     <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
-      <th>Rango</th><th>Nombre clon</th><th>Nombre Jedi</th><th>Icónico</th>
+      <th>Rango</th><th>Nombre clon</th><th data-ancho-min="170" data-sin-cortar>Nombre Jedi</th><th>Icónico</th>
       <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th>${editable ? '<th></th>' : ''}
     </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
     <p class="ayuda">Clic en un SteamID o Discord para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
