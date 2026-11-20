@@ -219,12 +219,12 @@ const TIPOS_EVENTO = [
    Más adelante podés subir un número a 2 para que solo lo vean administradores. */
 const SECCIONES = [
   { id: 'inicio',       titulo: 'Inicio',                            icono: '▦', grupo: 'Principal',    rangoMinimo: 1 },
+  { id: 'perfil',       titulo: 'Mi perfil',                         icono: '◉', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'calendario',   titulo: 'Calendario',                        icono: '▤', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'reglamento',   titulo: 'Reglamento del calendario',         icono: '§', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'actividad',    titulo: 'Registrar actividad',               icono: '✚', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'inactividad',  titulo: 'Informar inactividad',              icono: '☾', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'foro',         titulo: 'Reporte de bugs',                   icono: '✎', grupo: 'Principal',    rangoMinimo: 1 },
-  { id: 'perfil',       titulo: 'Mi perfil',                         icono: '◉', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'suboficiales', titulo: 'Actividad Suboficiales',            icono: '◆', grupo: 'Oficialidad',  rangoMinimo: 1 },
   { id: 'elites',       titulo: 'Actividad Élites',                  icono: '▲', grupo: 'Oficialidad',  rangoMinimo: 1 },
   { id: 'bu',           titulo: 'Actividad BU',                      icono: '⬢', grupo: 'Oficialidad',  rangoMinimo: 1 },

@@ -287,6 +287,67 @@ async function vistaInicio(cont) {
     </div>`;
 }
 
+/* ------------------------------------------------------------ ancho de columnas de las planillas
+   Cada columna toma el ancho que necesita la mayoría de sus textos (percentil 85), no el del más largo.
+   Lo que no entra se corta con "…" y al pasar el mouse se ve completo (title). El ancho no cambia al pasar el mouse
+   ni al editar: se recalcula solo cuando se vuelve a dibujar la planilla (cambio de mes, datos nuevos, etc.). */
+const ANCHO_COL = { min: 52, max: 280, percentil: 0.85 };
+let lienzoMedidas = null;
+function medirTexto(texto, fuente) {
+  lienzoMedidas = lienzoMedidas || document.createElement('canvas').getContext('2d');
+  lienzoMedidas.font = fuente;
+  return lienzoMedidas.measureText(texto).width;
+}
+function ajustarColumnas(cont) {
+  for (const tabla of $$('table.hoja', cont)) {
+    const filaCab = tabla.tHead?.rows[0]; if (!filaCab) continue;
+    const n = filaCab.cells.length;
+    const filas = [...tabla.tBodies[0]?.rows || [], ...(tabla.tFoot?.rows || [])].filter(r => r.cells.length === n);
+    const compacta = tabla.classList.contains('compacta');
+    const anchos = [];
+    for (let c = 0; c < n; c++) {
+      const th = filaCab.cells[c];
+      if (th.classList.contains('col-n')) { anchos.push(44); continue; }
+      const estTh = getComputedStyle(th), padTh = parseFloat(estTh.paddingLeft) + parseFloat(estTh.paddingRight);
+      // Encabezado: puede ocupar hasta 2 renglones, pero ninguna palabra se corta
+      const tituloCab = th.textContent.trim();
+      const palabras = tituloCab.split(/\s+/).map(p => medirTexto(p, estTh.font));
+      const minCab = Math.max(Math.max(0, ...palabras), medirTexto(tituloCab, estTh.font) / 2) + padTh + 2;
+      const medidas = [];
+      let pad = compacta ? 16 : 24;
+      for (const fila of filas) {
+        const td = fila.cells[c], txt = td.textContent.replace(/\s+/g, ' ').trim();
+        if (!txt) continue;
+        const est = getComputedStyle(td);
+        pad = parseFloat(est.paddingLeft) + parseFloat(est.paddingRight);
+        medidas.push(medirTexto(txt, est.font));
+      }
+      medidas.sort((a, b) => a - b);
+      const tipico = medidas.length ? medidas[Math.min(medidas.length - 1, Math.floor((medidas.length - 1) * ANCHO_COL.percentil))] + pad + 4 : 0;
+      const minimo = th.classList.contains('col-nombre') ? 110 : ANCHO_COL.min;
+      anchos.push(Math.round(Math.min(ANCHO_COL.max, Math.max(minimo, minCab, tipico))));
+    }
+    tabla.querySelector('colgroup')?.remove();
+    tabla.insertAdjacentHTML('afterbegin', `<colgroup>${anchos.map(a => `<col style="width:${a}px">`).join('')}</colgroup>`);
+    const total = anchos.reduce((s, a) => s + a, 0);
+    tabla.style.width = total + 'px';
+    tabla.classList.add('ajustada');
+    // La columna fija del nombre arranca después de la del número
+    const colN = anchos[0] === 44 && filaCab.cells[0].classList.contains('col-n') ? 44 : 0;
+    if (colN) $$('.col-nombre', tabla).forEach(x => { x.style.left = colN + 'px'; });
+  }
+}
+// Al pasar el mouse por una celda cortada se ve el texto completo
+document.addEventListener('mouseover', ev => {
+  const td = ev.target.closest?.('table.hoja.ajustada td, table.hoja.ajustada th');
+  if (!td || td.classList.contains('editando')) return;
+  if (td.dataset.tituloPropio === undefined) td.dataset.tituloPropio = td.getAttribute('title') || '';
+  const txt = td.textContent.replace(/\s+/g, ' ').trim();
+  const cortado = td.scrollWidth > td.clientWidth + 1;
+  const propio = td.dataset.tituloPropio;
+  td.title = cortado ? (propio && propio !== txt ? `${txt}\n${propio}` : txt) : propio;
+});
+
 /* ============================================================ REGISTROS: utilidades */
 const COL_PLANTEL = '_plantel';   // columna oculta: quién figura en cada hoja histórica y con qué rango
 
@@ -453,6 +514,7 @@ async function vistaRegistro(cat) {
     hc.innerHTML = html;
     hoja.filas.forEach((_, f) => cols.forEach((_, c) => pintarCelda(f, c)));
     pintarTotales();
+    ajustarColumnas(hc);
     marcarSeleccion();
   }
 
@@ -477,6 +539,7 @@ async function vistaRegistro(cat) {
     }).join('')}</div>`;
     hoja.filas.forEach((_, f) => cols.forEach((_, c) => pintarCelda(f, c)));
     pintarTotales();
+    ajustarColumnas(hc);
     marcarSeleccion();
   }
 
