@@ -298,6 +298,21 @@ function medirTexto(texto, fuente) {
   lienzoMedidas.font = fuente;
   return lienzoMedidas.measureText(texto).width;
 }
+// Ancho "típico" de una lista de medidas ordenadas: el del texto más largo, salvo que sea mucho más largo
+// que la mayoría (más de 40% sobre el percentil 85); en ese caso se usa el percentil y el largo se corta con "…".
+function anchoTipico(medidas) {
+  const p = medidas[Math.min(medidas.length - 1, Math.floor((medidas.length - 1) * ANCHO_COL.percentil))];
+  const max = medidas[medidas.length - 1];
+  return max <= p * 1.4 ? max : p;
+}
+// Aplica los anchos. Si la tabla ocupa todo el ancho disponible (llenar), el espacio que sobra va a la última columna
+// en vez de repartirse: así las columnas no se estiran más de lo que necesita su contenido.
+function colgroupAjustado(tabla, anchos, llenar) {
+  const total = anchos.reduce((s, a) => s + a, 0);
+  tabla.insertAdjacentHTML('afterbegin', `<colgroup>${anchos.map((a, i) =>
+    llenar && i === anchos.length - 1 ? '<col>' : `<col style="width:${a}px">`).join('')}</colgroup>`);
+  tabla.style.width = llenar ? `max(100%, ${total}px)` : total + 'px';
+}
 function ajustarColumnas(cont) {
   for (const tabla of $$('table.hoja', cont)) {
     const filaCab = tabla.tHead?.rows[0]; if (!filaCab) continue;
@@ -323,14 +338,12 @@ function ajustarColumnas(cont) {
         medidas.push(medirTexto(txt, est.font));
       }
       medidas.sort((a, b) => a - b);
-      const tipico = medidas.length ? medidas[Math.min(medidas.length - 1, Math.floor((medidas.length - 1) * ANCHO_COL.percentil))] + pad + 4 : 0;
+      const tipico = medidas.length ? anchoTipico(medidas) + pad + 4 : 0;
       const minimo = th.classList.contains('col-nombre') ? 110 : ANCHO_COL.min;
       anchos.push(Math.round(Math.min(ANCHO_COL.max, Math.max(minimo, minCab, tipico))));
     }
     tabla.querySelector('colgroup')?.remove();
-    tabla.insertAdjacentHTML('afterbegin', `<colgroup>${anchos.map(a => `<col style="width:${a}px">`).join('')}</colgroup>`);
-    const total = anchos.reduce((s, a) => s + a, 0);
-    tabla.style.width = total + 'px';
+    colgroupAjustado(tabla, anchos, compacta);
     tabla.classList.add('ajustada');
     // La columna fija del nombre arranca después de la del número
     const colN = anchos[0] === 44 && filaCab.cells[0].classList.contains('col-n') ? 44 : 0;
@@ -370,18 +383,18 @@ function ajustarTablaDatos(tabla) {
       const est = getComputedStyle(td);
       // Los desplegables se miden por su opción más larga (si no, quedan tan angostos como la columna)
       const sel = td.querySelector('select');
-      const anchoSel = sel ? Math.max(...[...sel.options].map(o => medirTexto(o.text, getComputedStyle(sel).font))) + 44 : 0;
+      const topeSel = sel ? parseFloat(getComputedStyle(sel).maxWidth) || Infinity : 0;
+      const anchoSel = sel ? Math.min(topeSel, Math.max(...[...sel.options].map(o => medirTexto(o.text, getComputedStyle(sel).font))) + 44) : 0;
       medidas.push(Math.max(anchoDe(td), anchoSel) + parseFloat(est.paddingLeft) + parseFloat(est.paddingRight) + 2);
     }
     medidas.sort((a, b) => a - b);
     const tipico = !medidas.length ? 0
       : interactivo ? medidas[medidas.length - 1]
-      : medidas[Math.min(medidas.length - 1, Math.floor((medidas.length - 1) * ANCHO_COL.percentil))];
+      : anchoTipico(medidas);
     anchos.push(Math.round(Math.max(ANCHO_DATOS.min, minCab, interactivo ? tipico : Math.min(ANCHO_DATOS.max, tipico))));
   }
   tabla.classList.remove('midiendo');
-  tabla.insertAdjacentHTML('afterbegin', `<colgroup>${anchos.map(a => `<col style="width:${a}px">`).join('')}</colgroup>`);
-  tabla.style.width = anchos.reduce((s, a) => s + a, 0) + 'px';
+  colgroupAjustado(tabla, anchos, true);
   tabla.classList.add('ajustada');
 }
 // Cada vez que una vista dibuja o actualiza una tabla, se reajusta (una vez por cuadro)
