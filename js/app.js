@@ -339,8 +339,11 @@ function ajustarColumnas(cont) {
       }
       medidas.sort((a, b) => a - b);
       const tipico = medidas.length ? anchoTipico(medidas) + pad + 4 : 0;
-      const minimo = th.classList.contains('col-nombre') ? 110 : ANCHO_COL.min;
-      anchos.push(Math.round(Math.min(ANCHO_COL.max, Math.max(minimo, minCab, tipico))));
+      const esNombre = th.classList.contains('col-nombre');
+      const minimo = esNombre ? 140 : ANCHO_COL.min;
+      // Los nombres entran completos (hasta 210px); el resto usa el ancho típico
+      const largo = esNombre && medidas.length ? Math.min(210, medidas[medidas.length - 1] + pad + 4) : 0;
+      anchos.push(Math.round(Math.min(ANCHO_COL.max, Math.max(minimo, minCab, tipico, largo))));
     }
     tabla.querySelector('colgroup')?.remove();
     colgroupAjustado(tabla, anchos, compacta);
@@ -392,7 +395,7 @@ function ajustarTablaDatos(tabla) {
       : interactivo ? medidas[medidas.length - 1]
       : anchoTipico(medidas);
     // Columnas marcadas en el encabezado: data-sin-cortar (entra el texto más largo) y data-ancho-min (ancho mínimo en px)
-    const sinCortar = th.hasAttribute("data-sin-cortar") && medidas.length ? medidas[medidas.length - 1] : 0;
+    const sinCortar = th.hasAttribute("data-sin-cortar") && medidas.length ? Math.min(220, medidas[medidas.length - 1]) : 0;
     anchos.push(Math.round(Math.max(ANCHO_DATOS.min, +th.dataset.anchoMin || 0, minCab, sinCortar, interactivo ? tipico : Math.min(ANCHO_DATOS.max, tipico))));
   }
   tabla.classList.remove('midiendo');
@@ -941,7 +944,7 @@ async function vistaMiembros(cont) {
       ${editable ? '<button class="btn primario" id="btn-nuevo">+ Agregar miembro</button>' : ''}
     </div>
     <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
-      <th>Rango</th><th>Nombre clon</th><th data-ancho-min="170" data-sin-cortar>Nombre Jedi</th><th>Icónico</th>
+      <th>Rango</th><th data-ancho-min="150" data-sin-cortar>Nombre clon</th><th data-ancho-min="170" data-sin-cortar>Nombre Jedi</th><th>Icónico</th>
       <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th>${editable ? '<th></th>' : ''}
     </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
     <p class="ayuda">Clic en un SteamID o Discord para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
@@ -1414,7 +1417,7 @@ async function vistaActividad(cont) {
           </select>
         </div>
         <div class="envoltorio-tabla"><table class="datos tabla-actividades"><thead><tr>
-          <th>Fecha</th><th>Actividad</th><th>Participantes</th><th>Cargada por</th><th>Informe</th><th></th>
+          <th>Fecha</th><th>Actividad</th><th data-ancho-min="150" data-sin-cortar>Participantes</th><th data-ancho-min="150" data-sin-cortar>Cargada por</th><th>Informe</th><th></th>
         </tr></thead><tbody id="cuerpo-act"></tbody></table></div>
       </section>` : ''}
     </div>`;
@@ -1699,14 +1702,14 @@ async function vistaPerfil(cont) {
 
     <h3 class="seccion-titulo" id="titulo-actividades">Actividades registradas</h3>
     <div class="envoltorio-tabla"><table class="datos tabla-actividades"><thead><tr>
-      <th>Fecha</th><th>Actividad</th><th>Rol</th><th>Con</th><th>Cargada por</th><th>Registrada el</th><th>Informe</th>
+      <th>Fecha</th><th>Actividad</th><th>Rol</th><th data-ancho-min="150" data-sin-cortar>Con</th><th data-ancho-min="150" data-sin-cortar>Cargada por</th><th>Registrada el</th><th>Informe</th>
     </tr></thead><tbody id="perfil-actividades"></tbody></table></div>
 
     <div id="bloque-anuladas" hidden>
       <h3 class="seccion-titulo" id="titulo-anuladas">Actividades anuladas</h3>
       <p class="dato-etiqueta" style="margin:-6px 0 10px">No suman en las tablas. Se muestran solo para control.</p>
       <div class="envoltorio-tabla"><table class="datos tabla-actividades"><thead><tr>
-        <th>Fecha</th><th>Actividad</th><th>Rol</th><th>Con</th><th>Cargada por</th><th>Anulada el</th><th>Informe</th>
+        <th>Fecha</th><th>Actividad</th><th>Rol</th><th data-ancho-min="150" data-sin-cortar>Con</th><th data-ancho-min="150" data-sin-cortar>Cargada por</th><th>Anulada el</th><th>Informe</th>
       </tr></thead><tbody id="perfil-anuladas"></tbody></table></div>
     </div>`;
 
@@ -2042,7 +2045,7 @@ async function vistaInactividad(cont) {
           </select>
         </div>
         <div class="envoltorio-tabla"><table class="datos"><thead><tr>
-          <th>Estado</th><th>Miembro</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Motivo</th><th>Aviso</th><th></th>
+          <th>Estado</th><th data-ancho-min="150" data-sin-cortar>Miembro</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Motivo</th><th>Aviso</th><th></th>
         </tr></thead><tbody id="todas-inact"></tbody></table></div>
       </section>` : ''}
     </div>`;
@@ -2264,7 +2267,7 @@ async function vistaUsuarios(cont) {
         <span><strong>Modo abierto</strong><br><span style="color:var(--texto-2)">Mientras esté activo, cualquier cuenta registrada puede editar tablas, miembros, calendario y reglamento.
         Desactivalo cuando quieras que solo las cuentas con ${esc(nombreRango(RANGO_ADMIN))} editen (el resto queda en solo lectura).</span></span></label>
     </div>
-    <div class="envoltorio-tabla"><table class="datos"><thead><tr><th>Cuenta</th><th>Email</th><th>Rango</th><th>Miembro vinculado</th><th>Registrado</th></tr></thead>
+    <div class="envoltorio-tabla"><table class="datos"><thead><tr><th data-ancho-min="150" data-sin-cortar>Cuenta</th><th>Email</th><th>Rango</th><th>Miembro vinculado</th><th>Registrado</th></tr></thead>
     <tbody id="cuerpo-usuarios"></tbody></table></div>
     <p class="ayuda">Vinculá cada cuenta con su miembro de la legión para que pueda cargar actividades en <a href="#/actividad">Registrar actividad</a>. Un miembro solo puede estar vinculado a una cuenta.
     Los rangos nuevos se agregan en <code>js/config.js</code> (RANGOS).</p>`;
