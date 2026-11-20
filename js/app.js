@@ -478,6 +478,9 @@ function ordenarFilasRegistro(config, lista) {
   });
 }
 
+// Registros que abren en modo Vista (resumen y tabla para leer); el resto abre directo en la planilla
+const REGISTROS_CON_VISTA = ['elites', 'suboficiales', 'bu', 'soldados', 'cabos'];
+
 function valorFijo(m, f) {
   const v = m[f.campo];
   if (!v) return '';
@@ -493,6 +496,11 @@ async function vistaRegistro(cat) {
   const fijas = config.fijas || [];
   const editables = cols.filter(c => c.tipo !== 'calculada');
   const hoja = { cat, config, filas: [], celdas: new Map(), calc: [], sel: { f: 0, c: 0 }, editando: null, clave: null };
+  // Modo Vista (por defecto, para leer) o Planilla (el Excel para editar). Se recuerda por registro en este navegador.
+  const conVista = REGISTROS_CON_VISTA.includes(cat);
+  const claveModo = 'bd21_modo_' + cat;
+  hoja.modo = 'planilla';
+  if (conVista) { hoja.modo = 'ver'; try { if (localStorage.getItem(claveModo) === 'planilla') hoja.modo = 'planilla'; } catch {} }
   estado.periodos = estado.periodos || {};
   if (config.periodo && !estado.periodos[cat]) estado.periodos[cat] = periodoDe(config, new Date());
 
@@ -506,20 +514,37 @@ async function vistaRegistro(cat) {
     <div class="herramientas">
       ${navegacion}
       <span class="espacio"></span>
+      ${conVista ? `<div class="selector-modo" role="tablist" aria-label="Modo">
+        <button data-modo="ver" role="tab">👁 Vista</button>
+        <button data-modo="planilla" role="tab">✎ ${puedeEditar() ? 'Editar planilla' : 'Planilla'}</button></div>` : ''}
       <button class="btn chico" id="btn-bloq-celda" title="Bloquear o desbloquear la celda seleccionada (Ctrl+B)">🔒 Bloquear celda</button>
       <button class="btn chico" id="btn-bloq-mes">Bloquear ${textoMes}</button>
       <button class="btn chico" id="btn-desbloq-mes">Desbloquear ${textoMes}</button>
       <button class="btn chico" id="btn-csv">Exportar CSV</button>
     </div>
     ${config.periodo ? '' : `<div class="meses" id="meses">${MESES.map((m, i) => `<button class="mes" data-mes="${i + 1}">${m}</button>`).join('')}</div>`}
-    <div class="barra-formula ${config.periodo ? 'sin-meses' : ''}"><div class="ref" id="f-ref">—</div><div class="fx">fx</div><div class="val" id="f-val"></div><div class="estado-guardado" id="f-estado"></div></div>
+    <div class="barra-formula ${config.periodo ? 'sin-meses' : ''}" id="barra-formula"><div class="ref" id="f-ref">—</div><div class="fx">fx</div><div class="val" id="f-val"></div><div class="estado-guardado" id="f-estado"></div></div>
     <div class="hoja-contenedor" id="hoja-cont" tabindex="0"></div>
     ${cols.filter(c => c.opciones).map(c => `<datalist id="op-${c.clave}">${c.opciones.map(o => `<option value="${esc(o)}">`).join('')}</datalist>`).join('')}
-    <p class="ayuda">Clic para seleccionar · <kbd>Doble clic</kbd> o empezá a escribir para editar · <kbd>Enter</kbd> guarda y baja · <kbd>Tab</kbd> guarda y avanza · <kbd>Supr</kbd> borra · <kbd>Esc</kbd> cancela · <kbd>Ctrl</kbd>+<kbd>B</kbd> bloquea/desbloquea.
+    <p class="ayuda" id="ayuda-planilla">Clic para seleccionar · <kbd>Doble clic</kbd> o empezá a escribir para editar · <kbd>Enter</kbd> guarda y baja · <kbd>Tab</kbd> guarda y avanza · <kbd>Supr</kbd> borra · <kbd>Esc</kbd> cancela · <kbd>Ctrl</kbd>+<kbd>B</kbd> bloquea/desbloquea.
     Las columnas en <span class="muestra-calc">gris</span> se calculan solas. Los miembros salen de <a href="#/miembros">Miembros de la legión</a>, ordenados por rango.</p>`;
 
   const editable = puedeEditar();
-  ['#btn-bloq-celda', '#btn-bloq-mes', '#btn-desbloq-mes'].forEach(s => { $(s).hidden = !editable; });
+  function aplicarModo() {
+    const ver = hoja.modo === 'ver';
+    ['#btn-bloq-celda', '#btn-bloq-mes', '#btn-desbloq-mes'].forEach(s => { $(s).hidden = !editable || ver; });
+    $('#barra-formula').hidden = ver; $('#ayuda-planilla').hidden = ver;
+    $('#hoja-cont').classList.toggle('modo-ver', ver);
+    $$('[data-modo]', cont).forEach(b => { b.classList.toggle('activo', b.dataset.modo === hoja.modo); b.setAttribute('aria-selected', b.dataset.modo === hoja.modo); });
+  }
+  aplicarModo();
+  $$('[data-modo]', cont).forEach(b => b.onclick = () => {
+    if (hoja.modo === b.dataset.modo || hoja.editando) return;
+    hoja.modo = b.dataset.modo;
+    try { localStorage.setItem(claveModo, hoja.modo); } catch {}
+    aplicarModo(); pintar();
+    if (hoja.modo === 'planilla') $('#hoja-cont').focus({ preventScroll: true });
+  });
 
   const clave = (mid, col) => `${mid}|${col}`;
   const celdaDe = (f, c) => hoja.celdas.get(clave(hoja.filas[f].id, cols[c].clave));
@@ -577,6 +602,8 @@ async function vistaRegistro(cat) {
         <a class="btn" href="#/miembros">Ir a Miembros</a></div>`;
       actualizarFormula(); return;
     }
+    if (hoja.modo === 'ver') return pintarVista(hc);
+    hc.classList.remove('modo-ver');
     const numCol = c => c.tipo === 'numero' || c.numerica;
     hc.classList.toggle('con-secciones', !!config.secciones);
     if (config.secciones) return pintarSecciones(hc, numCol);
@@ -624,6 +651,110 @@ async function vistaRegistro(cat) {
     pintarTotales();
     ajustarColumnas(hc);
     marcarSeleccion();
+  }
+
+  /* ---------- modo Vista: resumen + tabla limpia para leer (el modo Planilla es el Excel para editar) */
+  function pintarVista(hc) {
+    hc.classList.remove('con-secciones'); hc.classList.add('modo-ver');
+    const colTotal = cols.find(c => c.tipo === 'calculada' && c.numerica && /total/.test(c.clave) && !/lid/.test(c.clave));
+    const colEstado = cols.find(c => c.tipo === 'calculada' && !c.numerica);
+    const numeroDe = (f, c) => numero(textoCelda(f, c));
+    const totalDe = f => colTotal ? numero(hoja.calc[f]?.[colTotal.clave])
+      : cols.reduce((s, c, ci) => s + (c.tipo === 'numero' ? numeroDe(f, ci) : 0), 0);
+    const totales = hoja.filas.map((_, f) => totalDe(f));
+    const suma = totales.reduce((s, t) => s + t, 0), maxTotal = Math.max(1, ...totales);
+    const sinActividad = totales.filter(t => !t).length;
+    const conInact = hoja.filas.filter(m => hoja.inact?.get(m.id)?.length).length;
+    const estados = {};
+    if (colEstado) hoja.filas.forEach((_, f) => { const v = String(hoja.calc[f]?.[colEstado.clave] || ''); if (v) estados[v] = (estados[v] || 0) + 1; });
+    const claseEstado = v => /^✅/.test(v) ? 'ok' : /^🟨/.test(v) ? 'medio' : /^❌/.test(v) ? 'mal' : 'neutro';
+    const textoEstado = v => String(v).replace(/^[^\p{L}\p{N}]+/u, '');
+    const pastilla = v => v ? `<span class="pastilla ${claseEstado(v)}">${esc(textoEstado(v))}</span>` : '';
+
+    const tarjeta = (n, t, extra = '') => `<div class="tarjeta resumen-vista">${extra}<div class="dato-grande">${n}</div><div class="dato-etiqueta">${t}</div></div>`;
+    hc.innerHTML = `
+      <div class="rejilla resumen-hoja">
+        ${tarjeta(hoja.filas.length, 'Miembros en la planilla')}
+        ${tarjeta(formatoNum(suma), colTotal ? esc(colTotal.nombre) + ' (suma)' : 'Actividades (suma)')}
+        ${tarjeta(formatoNum(Math.round(suma / Math.max(1, hoja.filas.length) * 10) / 10), 'Promedio por miembro')}
+        ${Object.entries(estados).sort((a, b) => ['ok', 'medio', 'neutro', 'mal'].indexOf(claseEstado(a[0])) - ['ok', 'medio', 'neutro', 'mal'].indexOf(claseEstado(b[0])))
+            .map(([v, n]) => tarjeta(n, pastilla(v))).join('')}
+        ${tarjeta(sinActividad, 'Sin actividad')}
+        ${conInact ? tarjeta(conInact, 'Con inactividad declarada') : ''}
+      </div>
+      <div class="herramientas vista-filtros">
+        <input class="entrada" id="vista-buscar" placeholder="Buscar miembro o rango…" style="max-width:280px" value="${esc(hoja.busqueda || '')}">
+        <span class="tenue" style="font-size:12.5px">Clic en un encabezado para ordenar</span>
+      </div>
+      <div id="vista-tabla"></div>`;
+
+    const columnas = [
+      { id: 'nombre', titulo: 'Miembro', valor: f => hoja.filas[f].nombre },
+      { id: 'grado', titulo: config.secciones?.columna || 'Rango', valor: f => config.secciones?.columna ? hoja.filas[f][config.secciones.campo] : hoja.filas[f].grado,
+        orden: f => config.secciones?.columna ? hoja.filas[f][config.secciones.campo] : RANGOS_NORM.indexOf(normRango(hoja.filas[f].grado)) },
+      ...fijas.map(x => ({ id: 'fija-' + x.campo, titulo: x.nombre, valor: f => valorFijo(hoja.filas[f], x) })),
+      ...cols.map((c, ci) => ({ id: c.clave, titulo: c.nombre, col: c, ci, num: c.tipo === 'numero' || c.numerica,
+        valor: f => textoCelda(f, ci) }))
+        // Las columnas que se cargan a mano y no tienen ningún dato en este período no se muestran (están en la planilla)
+        .filter(c => c.col.tipo !== 'numero' || hoja.filas.some((_, f) => numeroDe(f, c.ci))),
+    ];
+    const ocultas = cols.filter((c, ci) => c.tipo === 'numero' && !hoja.filas.some((_, f) => numeroDe(f, ci))).map(c => c.nombre);
+    if (ocultas.length) $('.vista-filtros', hc).insertAdjacentHTML('beforeend',
+      `<span class="tenue" style="font-size:12.5px" title="${esc(ocultas.join(', '))}">· ${ocultas.length} columna${ocultas.length === 1 ? '' : 's'} sin datos en este período oculta${ocultas.length === 1 ? '' : 's'}</span>`);
+    function tablaHTML() {
+      const q = (hoja.busqueda || '').trim().toLowerCase();
+      const visible = f => !q || `${hoja.filas[f].nombre} ${hoja.filas[f].grado} ${hoja.filas[f].elite || ''}`.toLowerCase().includes(q);
+      const grupos = config.secciones
+        ? config.secciones.lista.map(s => ({ titulo: s.titulo, filas: hoja.filas.map((m, f) => s.valores.includes(m[config.secciones.campo]) ? f : -1).filter(f => f >= 0) }))
+        : [{ titulo: '', filas: hoja.filas.map((_, f) => f) }];
+      const o = hoja.orden;
+      if (o) {
+        const col = columnas.find(c => c.id === o.id);
+        const clave = f => col.orden ? col.orden(f) : col.num ? numero(col.valor(f)) : String(col.valor(f) || '').toLowerCase();
+        grupos.forEach(g => g.filas.sort((a, b) => { const x = clave(a), y = clave(b); return (x > y ? 1 : x < y ? -1 : 0) * o.dir; }));
+      }
+      const celda = (c, f) => {
+        if (!c.col) {
+          if (c.id === 'nombre') { const m = hoja.filas[f];
+            return `<td class="v-nombre"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${colInact < 0 ? insigniaInactividad(hoja.inact?.get(m.id), m.nombre) : ''}</td>`; }
+          return `<td class="tenue">${esc(c.valor(f) || '—')}</td>`;
+        }
+        const v = c.valor(f);
+        if (c.col === colTotal) { const n = numero(v);
+          return `<td class="num v-total"><span class="barra-total"><span style="width:${Math.round(n / maxTotal * 100)}%"></span></span><b>${formatoNum(n)}</b></td>`; }
+        if (c.num) { const n = numero(v); return `<td class="num ${n ? '' : 'cero'}">${n ? formatoNum(n) : '–'}</td>`; }
+        if (c.col.tipo === 'calculada') return `<td>${pastilla(v)}</td>`;
+        const ins = c.ci === colInact ? insigniaInactividad(hoja.inact?.get(hoja.filas[f].id), hoja.filas[f].nombre) : '';
+        return `<td class="v-texto">${ins}${v ? `<span>${esc(v)}</span>` : (ins ? '' : '<span class="tenue">—</span>')}</td>`;
+      };
+      const totalCol = c => {
+        if (!c.num) return '<td></td>';
+        const n = hoja.filas.reduce((s, _, f) => s + numero(c.valor(f)), 0);
+        return `<td class="num"><b>${formatoNum(n)}</b></td>`;
+      };
+      const filasHTML = grupos.map(g => {
+        const fs = g.filas.filter(visible);
+        return (g.titulo ? `<tr class="fila-grupo"><td colspan="${columnas.length}">${esc(g.titulo)} <span>${fs.length}</span></td></tr>` : '')
+          + (fs.length ? fs.map(f => `<tr class="${hoja.filas[f].activo ? '' : 'inactivo'}">${columnas.map(c => celda(c, f)).join('')}</tr>`).join('')
+            : `<tr><td colspan="${columnas.length}" class="vacio-chico">${q ? 'Nadie coincide con la búsqueda.' : 'Sin miembros'}</td></tr>`);
+      }).join('');
+      return `<div class="envoltorio-tabla"><table class="datos tabla-vista"><thead><tr>${columnas.map(c =>
+          `<th class="${c.num ? 'num' : ''} ${o?.id === c.id ? 'ordenada' : ''}" data-orden="${c.id}" title="Ordenar por ${esc(c.titulo)}"
+            ${c.id === 'nombre' ? 'data-ancho-min="140" data-sin-cortar' : c.col?.tipo === 'calculada' && !c.num ? 'data-sin-cortar' : c.col?.tipo === 'texto' ? 'data-ancho-min="160"' : ''}>${esc(c.titulo)}${o?.id === c.id ? (o.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+        <tbody>${filasHTML}</tbody>
+        <tfoot><tr>${columnas.map((c, i) => i === 0 ? '<td><b>Total</b></td>' : totalCol(c)).join('')}</tr></tfoot></table></div>`;
+    }
+    const pintarTabla = () => { $('#vista-tabla').innerHTML = tablaHTML(); };
+    pintarTabla();
+    $('#vista-buscar').oninput = ev => { hoja.busqueda = ev.target.value; pintarTabla(); };
+    $('#vista-tabla').onclick = ev => {
+      const th = ev.target.closest('th[data-orden]'); if (!th) return;
+      const id = th.dataset.orden, col = columnas.find(c => c.id === id);
+      // números: primero de mayor a menor; textos: A→Z. Tercer clic vuelve al orden original.
+      const inicial = col.num ? -1 : 1;
+      hoja.orden = hoja.orden?.id !== id ? { id, dir: inicial } : hoja.orden.dir === inicial ? { id, dir: -inicial } : null;
+      pintarTabla();
+    };
   }
 
   function tdDe(f, c) { return $(`td[data-f="${f}"][data-c="${c}"]`, $('#hoja-cont')); }
@@ -824,12 +955,13 @@ async function vistaRegistro(cat) {
 
   const hc = $('#hoja-cont');
   hc.onclick = ev => {
+    if (hoja.modo === 'ver') return;
     const td = ev.target.closest('td[data-f]'); if (!td || hoja.editando) return;
     hoja.sel = { f: +td.dataset.f, c: +td.dataset.c }; marcarSeleccion(); hc.focus({ preventScroll: true });
   };
-  hc.ondblclick = ev => { const td = ev.target.closest('td[data-f]'); if (td) empezarEdicion(+td.dataset.f, +td.dataset.c); };
+  hc.ondblclick = ev => { if (hoja.modo === 'ver') return; const td = ev.target.closest('td[data-f]'); if (td) empezarEdicion(+td.dataset.f, +td.dataset.c); };
   hc.onkeydown = async ev => {
-    if (hoja.editando || !hoja.filas.length) return;
+    if (hoja.modo === 'ver' || hoja.editando || !hoja.filas.length || ev.target.closest('input')) return;
     const { f, c } = hoja.sel;
     const mov = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[ev.key];
     if (mov) { ev.preventDefault(); moverSel(...mov); }

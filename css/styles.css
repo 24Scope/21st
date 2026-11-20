@@ -356,9 +356,9 @@ table.datos { width: 100%; border-collapse: collapse; background: var(--superfic
 
 /* ------------------------------------------------------------ miembros */
 .tabla-miembros td, .tabla-miembros th { white-space: nowrap; }
-.tabla-miembros .fila-grupo td { background: var(--superficie-2); font-weight: 700; font-size: 12px; text-transform: uppercase;
+.tabla-miembros .fila-grupo td, .tabla-vista .fila-grupo td { background: var(--superficie-2); font-weight: 700; font-size: 12px; text-transform: uppercase;
   letter-spacing: .06em; color: var(--acento-texto); padding: 8px 14px; }
-.tabla-miembros .fila-grupo span { color: var(--texto-3); font-weight: 600; margin-left: 6px; }
+.tabla-miembros .fila-grupo span, .tabla-vista .fila-grupo span { color: var(--texto-3); font-weight: 600; margin-left: 6px; }
 .tabla-miembros .fila-inactiva td { opacity: .55; }
 .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
 .sub { display: block; font-size: 11.5px; color: var(--texto-3); margin-top: 2px; }
@@ -405,6 +405,38 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .chip-yo strong { color: var(--texto); }
 .fila-campos.tres { grid-template-columns: 2fr 1.2fr 1fr; }
 .historial-actividad { min-width: 0; }
+/* Registros: modo Vista */
+.selector-modo { display: inline-flex; border: 1px solid var(--borde-fuerte); border-radius: 8px; overflow: hidden; }
+.selector-modo button { border: 0; background: var(--superficie); color: var(--texto-2); font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; }
+.selector-modo button + button { border-left: 1px solid var(--borde-fuerte); }
+.selector-modo button:hover { color: var(--texto); background: var(--superficie-2); }
+.selector-modo button.activo { background: var(--acento-suave); color: var(--acento-texto); font-weight: 600; }
+.hoja-contenedor.modo-ver { border: 0; background: none; max-height: none; overflow: visible; padding-top: 14px; }
+.resumen-hoja { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin-bottom: 14px; gap: 10px; }
+.resumen-vista { padding: 14px 16px; }
+.resumen-vista .dato-grande { font-size: 26px; }
+.resumen-vista .dato-etiqueta .pastilla { font-size: 12px; }
+.vista-filtros { margin-bottom: 10px; }
+.tabla-vista th[data-orden] { cursor: pointer; user-select: none; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.tabla-vista th[data-orden]:hover, .tabla-vista th.ordenada { color: var(--texto); }
+.tabla-vista td { padding: 8px 12px; }
+.tabla-vista td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tabla-vista th.num { text-align: right; }
+.tabla-vista td.cero { color: var(--texto-3); opacity: .6; }
+.tabla-vista .v-nombre { font-weight: 600; }
+.tabla-vista .v-texto { color: var(--texto-2); font-size: 12.5px; }
+.tabla-vista .v-total { white-space: nowrap; }
+.tabla-vista .v-total b { display: inline-block; min-width: 24px; }
+.barra-total { display: inline-block; width: 46px; height: 6px; border-radius: 3px; background: var(--superficie-2); margin-right: 8px; vertical-align: middle; overflow: hidden; }
+.barra-total span { display: block; height: 100%; background: var(--acento); border-radius: 3px; }
+.tabla-vista tfoot td { border-top: 1px solid var(--borde-fuerte); background: var(--superficie-2); }
+.tabla-vista tr.inactivo .v-nombre { color: var(--texto-3); font-style: italic; }
+.pastilla { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; border: 1px solid transparent; }
+.pastilla.ok { background: rgba(34,197,94,.14); color: #22c55e; border-color: rgba(34,197,94,.3); }
+.pastilla.medio { background: rgba(234,179,8,.14); color: #d4a106; border-color: rgba(234,179,8,.3); }
+.pastilla.mal { background: rgba(239,68,68,.12); color: #ef4444; border-color: rgba(239,68,68,.3); }
+.pastilla.neutro { background: var(--superficie-2); color: var(--texto-2); border-color: var(--borde-fuerte); }
+
 /* Menú de la marca de inactividad */
 .menu-inact { position: fixed; z-index: 60; min-width: 250px; max-width: 320px; background: var(--superficie); border: 1px solid var(--borde-fuerte);
   border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 4px; font-size: 13.5px; }
