@@ -2413,25 +2413,72 @@ const rangosDeGrupos = grupos => new Set(grupos.flatMap(g => GRUPOS_ASCENSO[g]?.
 const gruposDeInforme = (inf, revision) => inf.cuenta?.length ? inf.cuenta : (REVISIONES_ASCENSO[revision]?.grupos || ['soldados']);
 const textoGrupos = g => g.map(x => GRUPOS_ASCENSO[x]?.titulo).filter(Boolean).join(' y ');
 
-// Lee un renglón tipo "<SDO2 Taitus> (Lider)"
+// Letras "de fantasía" (🅿🅰🆁…, Ⓟ, 𝐏, ＰＡＲ…) → letras comunes, sin tildes
+function letrasPlanasAsc(t) {
+  let out = '';
+  for (const ch of String(t || '')) {
+    const c = ch.codePointAt(0);
+    if (c >= 0x1F130 && c <= 0x1F149) out += String.fromCharCode(65 + c - 0x1F130);       // 🄰 cuadradas
+    else if (c >= 0x1F150 && c <= 0x1F169) out += String.fromCharCode(65 + c - 0x1F150);  // 🅐 círculo negro
+    else if (c >= 0x1F170 && c <= 0x1F189) out += String.fromCharCode(65 + c - 0x1F170);  // 🅰 cuadrado negro
+    else if (c >= 0x1F1E6 && c <= 0x1F1FF) out += String.fromCharCode(65 + c - 0x1F1E6);  // 🇦 indicadores regionales
+    else out += ch;
+  }
+  return out.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+}
+// Segunda parte de un rango escrito separado: "SGT 2", "CBO 1°", "SGT MYR", "CBO Mayor", "CMD B"
+function sufijoRangoAsc(t) {
+  const x = letrasPlanasAsc(t).toUpperCase().replace(/[°º.\[\]()]/g, '');
+  if (/^(M|MY|MYR|MAY|MAYOR)$/.test(x)) return 'M';
+  if (/^(1|1RO|1ERO|1ER|1RA|PRIMERO)$/.test(x)) return '1';
+  if (/^(2|2DO|2DA|SEGUNDO)$/.test(x)) return '2';
+  if (x === 'B') return 'B';
+  return null;
+}
+const tokenRangoAsc = t => letrasPlanasAsc(t).toUpperCase().replace(/[°º.\[\]()<>]/g, '');
+// Rango al principio de una lista de palabras → { grado, usadas } (o null)
+function rangoInicialAsc(partes, rangos) {
+  if (!partes.length) return null;
+  const base = tokenRangoAsc(partes[0]);
+  if (partes.length > 1) {
+    const suf = sufijoRangoAsc(partes[1]);
+    const dos = suf && rangos.find(x => x.n === base + suf);
+    if (dos) return { grado: dos.r, usadas: 2 };
+  }
+  const uno = rangos.find(x => x.n === base);
+  return uno ? { grado: uno.r, usadas: 1 } : null;
+}
+// Saca el rol escrito al final de un texto libre ("Taitus - Lider", "Isagi Sub lider")
+function separarRolFinalAsc(t) {
+  let base = t, rol = '';
+  const g = /\s[-–—:|]\s(.*)$/.exec(base); if (g) { rol += ' ' + g[1]; base = base.slice(0, g.index); }
+  const fin = RE_ROL_ASC.exec(base); if (fin) { rol += ' ' + fin[0]; base = base.slice(0, fin.index); }
+  return { base, rol };
+}
+const limpiarNombreAsc = t => String(t || '').replace(/[<>\[\]]/g, ' ').replace(/^[\s\-–—:|.,*_~]+|[\s\-–—:|.,*_~]+$/g, '').replace(/\s+/g, ' ').trim();
+
+// Lee un renglón de participante. Acepta, entre otros:
+//   <SDO2 Taitus> (Lider)    SGT MYR Mordecai    CBO 1° Elen    [CBO1] <Isagi> Sub lider    [SDO] Clover - 2do al mando
 function leerRenglonAscenso(l, rangos) {
-  let base = l, rolTxt = [...l.matchAll(/\(([^)]*)\)/g)].map(m => m[1]).join(' ');
-  const ang = /^<([^>]+)>(.*)$/.exec(l);
-  if (ang) { base = ang[1]; rolTxt += ' ' + ang[2]; }
-  else {
-    base = l.replace(/\([^)]*\)/g, ' ');
-    const g = /\s[-–—:|]\s(.*)$/.exec(base); if (g) { rolTxt += ' ' + g[1]; base = base.slice(0, g.index); }
-    const fin = RE_ROL_ASC.exec(base); if (fin) { rolTxt += ' ' + fin[0]; base = base.slice(0, fin.index); }
+  let s = String(l || '').replace(/^[\s•·*>\-–—]+/, '').trim();
+  let rolTxt = [...s.matchAll(/\(([^)]*)\)/g)].map(m => m[1]).join(' ');
+  s = s.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  let grado = null, nombre = '', m;
+  if ((m = /^\[([^\]]+)\]\s*<([^>]+)>(.*)$/.exec(s))) {            // [SGT2] <Khos Varen> rol
+    const r = rangoInicialAsc(m[1].trim().split(/\s+/), rangos); grado = r?.grado; nombre = m[2]; rolTxt += ' ' + m[3];
+  } else if ((m = /^\[([^\]]+)\]\s*(.*)$/.exec(s))) {             // [SDO] Clover rol
+    const r = rangoInicialAsc(m[1].trim().split(/\s+/), rangos); grado = r?.grado;
+    const x = separarRolFinalAsc(m[2]); nombre = x.base; rolTxt += x.rol;
+  } else {
+    let cuerpo = s;
+    const ang = /^<([^>]+)>(.*)$/.exec(s);                           // <SDO2 Taitus> rol
+    if (ang) { cuerpo = ang[1]; rolTxt += ' ' + ang[2]; }
+    else { const x = separarRolFinalAsc(s); cuerpo = x.base; rolTxt += x.rol; }   // SGT MYR Mordecai rol
+    const partes = cuerpo.replace(/[<>]/g, ' ').trim().split(/\s+/);
+    const r = rangoInicialAsc(partes, rangos);
+    if (r) { grado = r.grado; nombre = partes.slice(r.usadas).join(' '); }
   }
-  const sinRol = base.replace(/\([^)]*\)/g, ' ').replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
-  const partes = sinRol.split(' ');
-  let grado = null, resto = partes.slice(1);
-  if (partes.length > 2) {     // el rango puede venir en dos partes ("SDO 1", "CMD B")
-    const dos = rangos.find(x => x.n === normRango(partes[0] + partes[1]) && partes[1].length <= 2);
-    if (dos) { grado = dos.r; resto = partes.slice(2); }
-  }
-  if (!grado) { const uno = rangos.find(x => x.n === normRango(partes[0])); if (uno) grado = uno.r; }
-  const nombre = resto.join(' ').trim();
+  nombre = limpiarNombreAsc(nombre);
   if (!grado || !nombre) return null;
   return { grado, nombre, rol: rolAscenso(rolTxt) };
 }
@@ -2482,23 +2529,31 @@ function leerInformeAscenso(texto) {
 
   // Participantes: lo que viene después de "PARTICIPANTES" hasta que cierra el bloque; si no hay ese título,
   // los renglones que empiezan con "<"; si tampoco, todos los renglones (una lista pegada sola).
+  // El título "PARTICIPANTES" puede venir decorado (━━ PARTICIPANTES ━━, 🅿🅰🆁🆃🅸🅲🅸🅿🅰🅽🆃🅴🆂, etc.)
   let candidatas;
-  const iPart = todas.findIndex(x => /PARTICIPANTES/i.test(x));
+  const iPart = todas.findIndex(x => /PARTICIPANTES/i.test(letrasPlanasAsc(x)));
+  const pareceLista = x => /^(<[^@#:!]|\[)/.test(x);
   if (iPart >= 0) {
     candidatas = [];
-    for (const x of todas.slice(iPart + 1)) { if (/^```/.test(x)) break; candidatas.push(x); }
-  } else if (todas.some(x => /^<[^@#:!]/.test(x))) candidatas = todas.filter(x => /^</.test(x));
-  else candidatas = todas;
-  const lineas = [], noLeidas = [];
+    for (const x of todas.slice(iPart + 1)) {
+      if (/^```/.test(x)) break;
+      // otra sección decorada después de la lista (━━ OBSERVACIONES ━━, ## ..., **...**)
+      if (candidatas.some(Boolean) && /^(#{1,3}\s|\*\*|━|═|─{3}|-{3})/.test(x) && !leerRenglonAscenso(x, rangos)) break;
+      candidatas.push(x);
+    }
+  } else candidatas = todas;   // sin título: se prueban todos los renglones; solo avisa de los que parecen de la lista
+  const lineas = [], noLeidas = [], usadas = new Set();
   for (const l of candidatas) {
     if (!l || /^<[@#:!]/.test(l)) continue;           // menciones de Discord (<@...>, <#...>)
+    if (!/[\p{L}\p{N}]/u.test(letrasPlanasAsc(l))) continue;  // renglones solo decorativos (━━━, emojis)
     const r = leerRenglonAscenso(l, rangos);
-    r ? lineas.push(r) : noLeidas.push(l);
+    if (r) { lineas.push(r); usadas.add(l); }
+    else if (iPart >= 0 || pareceLista(l)) noLeidas.push(l);
   }
   // Tipo: primero por el título; si no lo dice, por el resto del texto (sin los participantes ni los links)
   let tipo = tipoInformeAscenso(titulo), tipoPor = tipo ? 'titulo' : '';
   if (!tipo) {
-    const resto = todas.filter(x => !candidatas.includes(x)).join('\n').replace(/https?:\/\/\S+/g, ' ');
+    const resto = todas.filter(x => !usadas.has(x) && (iPart < 0 || !candidatas.includes(x))).join('\n').replace(/https?:\/\/\S+/g, ' ');
     tipo = tipoInformeAscenso(resto); if (tipo) tipoPor = 'texto';
   }
   return { titulo, tipo, tipoPor, lineas, noLeidas };
