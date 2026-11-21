@@ -1,4 +1,4 @@
-# Base de Datos 21
+# Panel de control 21st
 
 Panel de gestión de la legión: registros de actividad mensuales tipo Excel, calendario, reglamento y miembros, con cuentas y rangos.
 

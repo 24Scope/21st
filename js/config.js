@@ -1,5 +1,5 @@
 /* =====================================================================
-   CONFIGURACIÓN — Base de Datos 21
+   CONFIGURACIÓN — Panel de control 21st
    Este es el único archivo que necesitás tocar para personalizar el sitio.
    ===================================================================== */
 
@@ -11,7 +11,7 @@ const SUPABASE_URL = 'https://qshmdysaoulypgbeckcz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzaG1keXNhb3VseXBnYmVja2N6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5NjM5OTMsImV4cCI6MjExMDUzOTk5M30.JqHT2Q3bIFr6lfUPGEeBejvfvIjYN4wf39gbfdL2Lsk';
 
 /* 2) NOMBRE DEL SITIO */
-const NOMBRE_SITIO = 'Base de Datos 21';
+const NOMBRE_SITIO = 'Panel de control 21st';
 
 /* 3) RANGOS DE CUENTA */
 const RANGOS = {

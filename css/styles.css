@@ -696,9 +696,12 @@ a { color: var(--acento-texto); }
 .dato-grande, .rev-total-n { letter-spacing: 0; }
 .tarjeta h3, .seccion-titulo, .rev-sub { letter-spacing: .02em; }
 
-/* Logo */
-.marca-logo { background: linear-gradient(140deg, var(--marca-2), var(--marca)); border: 1px solid var(--acento);
-  box-shadow: 0 0 16px var(--brillo), inset 0 1px 0 rgba(255,255,255,.12); font-family: var(--fuente-titulo); font-weight: 400; }
+/* Logo oficial de la 21st */
+.marca-logo, .marca.grande .marca-logo { display: block; object-fit: contain; background: none; border: 0; border-radius: 50%;
+  filter: drop-shadow(0 0 8px var(--brillo)); }
+.marca-logo { width: 40px; height: 40px; }
+.marca.grande .marca-logo { width: 64px; height: 64px; }
+.marca-texto { line-height: 1.15; }
 
 /* Botones */
 .btn { background: var(--superficie-2); border-color: var(--borde-fuerte); border-radius: 10px; transition: background .15s, border-color .15s, box-shadow .15s; }

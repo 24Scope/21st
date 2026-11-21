@@ -1,5 +1,5 @@
 /* =====================================================================
-   Base de Datos 21 — interfaz
+   Panel de control 21st — interfaz
    ===================================================================== */
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -15,7 +15,7 @@ const ICONOS_MENU = {
   foro:         '<rect x="8" y="7" width="8" height="13" rx="4"/><path d="M12 7V5M9.5 4.5 10.5 6M14.5 4.5 13.5 6M4 13h4M16 13h4M5 19l3-1.5M19 19l-3-1.5M5 8l3 2M19 8l-3 2"/>',
   suboficiales: '<path d="m5 9 7-4 7 4M5 14l7-4 7 4M5 19l7-4 7 4"/>',
   elites:       '<path d="M12 3l8 3v6c0 4.6-3.4 8-8 9-4.6-1-8-4.4-8-9V6z"/><path d="m9 12 2 2 4-4"/>',
-  bu:           '<path d="M12 2.5 20.5 7.3v9.4L12 21.5l-8.5-4.8V7.3z"/><circle cx="12" cy="12" r="3"/>',
+  bu:           '<path d="M9 2.5C4.3 4.6 4 11.2 9.6 14.2"/><path d="M15 2.5c4.7 2.1 5 8.7-.6 11.7"/><path d="M12 4.5c-1.9 3.2-1.9 8.3 0 12.8 1.9-4.5 1.9-9.6 0-12.8z"/><path d="M10.2 18.6c-3.6.1-6.4-1.5-7.9-4.4M13.8 18.6c3.6.1 6.4-1.5 7.9-4.4"/><path d="M10.8 21.3c-3 .1-5.4-.8-7-2.5M13.2 21.3c3 .1 5.4-.8 7-2.5"/>',
   ascensos:     '<path d="M12 20V5M5.5 11.5 12 5l6.5 6.5"/><path d="M5 20h14"/>',
   soldados:     '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>',
   cabos:        '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>',

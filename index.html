@@ -3,17 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Base de Datos 21</title>
+  <title>Panel de control 21st</title>
+  <link rel="icon" href="img/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="img/favicon-64.png">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <meta name="theme-color" content="#1b1c2c">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Russo+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=41">
+  <link rel="stylesheet" href="css/styles.css?v=42">
 </head>
 <body>
   <!-- ====================== PANTALLA DE ACCESO ====================== -->
   <section id="pantalla-acceso" class="acceso" hidden>
     <div class="acceso-tarjeta">
-      <div class="marca grande"><span class="marca-logo">21</span><span class="marca-texto" data-nombre-sitio></span></div>
+      <div class="marca grande"><img class="marca-logo" src="img/logo-21.png" alt="Logo de la 21st"><span class="marca-texto" data-nombre-sitio></span></div>
       <p class="acceso-sub">Panel de gestión y registros de la legión</p>
 
       <div class="pestanas">
@@ -49,7 +54,7 @@
   <!-- ====================== CUENTA PENDIENTE ====================== -->
   <section id="pantalla-espera" class="acceso" hidden>
     <div class="acceso-tarjeta espera-tarjeta">
-      <div class="marca grande"><span class="marca-logo">21</span><span class="marca-texto" data-nombre-sitio></span></div>
+      <div class="marca grande"><img class="marca-logo" src="img/logo-21.png" alt="Logo de la 21st"><span class="marca-texto" data-nombre-sitio></span></div>
       <div class="espera-icono" id="espera-icono">⏳</div>
       <h2 id="espera-titulo">Cuenta pendiente de aprobación</h2>
       <p class="acceso-sub" id="espera-texto"></p>
@@ -75,7 +80,7 @@
   <!-- ====================== APLICACIÓN ====================== -->
   <div id="app" class="app" hidden>
     <aside class="lateral" id="lateral">
-      <div class="marca"><span class="marca-logo">21</span><span class="marca-texto" data-nombre-sitio></span></div>
+      <div class="marca"><img class="marca-logo" src="img/logo-21.png" alt="Logo de la 21st"><span class="marca-texto" data-nombre-sitio></span></div>
       <nav id="menu" class="menu"></nav>
       <div class="lateral-pie">
         <div class="usuario">
@@ -110,8 +115,8 @@
   <div id="avisos" class="avisos"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="js/config.js?v=41"></script>
-  <script src="js/api.js?v=41"></script>
-  <script src="js/app.js?v=41"></script>
+  <script src="js/config.js?v=42"></script>
+  <script src="js/api.js?v=42"></script>
+  <script src="js/app.js?v=42"></script>
 </body>
 </html>
