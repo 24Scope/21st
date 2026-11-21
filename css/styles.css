@@ -773,3 +773,17 @@ table.datos tbody tr:hover td, .tabla-vista tbody tr:hover td { background: rgba
 a.sub:hover, .copiar:hover, a.link-perfil:hover { color: var(--acento-texto); }
 .pestanas-vista a.activa { color: var(--acento-texto); border-bottom-color: var(--acento); }
 .mes.activo { box-shadow: inset 0 2px 0 var(--acento), 0 0 12px rgba(179, 86, 110, .15); }
+
+/* Menú lateral un poco más compacto (entra completo sin scrollear) */
+.lateral { padding: 14px 12px; }
+.menu { margin: 14px -4px 8px; }
+.menu-grupo { margin: 12px 10px 4px; }
+.menu-grupo:first-child { margin-top: 4px; }
+.menu-item { padding: 5px 10px; line-height: 1.2; font-size: 13px; min-height: 30px; }
+.lateral-pie { padding-top: 10px; gap: 10px; }
+.usuario-datos { flex: 1; min-width: 0; }
+.usuario-nombre { max-width: none; }
+.btn-salir { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; cursor: pointer;
+  background: transparent; border: 1px solid var(--borde-fuerte); color: var(--texto-2); transition: color .15s, border-color .15s, background .15s; }
+.btn-salir svg { width: 17px; height: 17px; }
+.btn-salir:hover { color: #fff; border-color: var(--acento); background: var(--lateral-2); box-shadow: 0 0 10px rgba(179, 86, 110, .25); }
