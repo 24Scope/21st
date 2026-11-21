@@ -2398,7 +2398,7 @@ const TIPOS_INFORME_ASC = {
   mision: { nombre: 'Misión',        plural: 'Misiones' },
   minirol:{ nombre: 'Minirol',       plural: 'Miniroles' },
   rol_pj: { nombre: 'Rol de PJ',     plural: 'Roles de PJ' },
-  cap:    { nombre: 'Capacitación',  plural: 'Capacitaciones' },
+  cap:    { nombre: 'Capacitación',  plural: 'Capacitaciones', oculto: true },   // ahora cuenta como Entrenamiento; queda por revisiones viejas
   otro:   { nombre: 'Otra actividad', plural: 'Otras' },
 };
 // Revisiones guardadas antes (un solo tipo para todos los informes)
@@ -2415,8 +2415,15 @@ const textoGrupos = g => g.map(x => GRUPOS_ASCENSO[x]?.titulo).filter(Boolean).j
 
 // Lee un renglón tipo "<SDO2 Taitus> (Lider)"
 function leerRenglonAscenso(l, rangos) {
-  const rolTxt = (/\(([^)]*)\)/.exec(l)?.[1] || '').toLowerCase();
-  const sinRol = l.replace(/\([^)]*\)/g, ' ').replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
+  let base = l, rolTxt = [...l.matchAll(/\(([^)]*)\)/g)].map(m => m[1]).join(' ');
+  const ang = /^<([^>]+)>(.*)$/.exec(l);
+  if (ang) { base = ang[1]; rolTxt += ' ' + ang[2]; }
+  else {
+    base = l.replace(/\([^)]*\)/g, ' ');
+    const g = /\s[-–—:|]\s(.*)$/.exec(base); if (g) { rolTxt += ' ' + g[1]; base = base.slice(0, g.index); }
+    const fin = RE_ROL_ASC.exec(base); if (fin) { rolTxt += ' ' + fin[0]; base = base.slice(0, fin.index); }
+  }
+  const sinRol = base.replace(/\([^)]*\)/g, ' ').replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
   const partes = sinRol.split(' ');
   let grado = null, resto = partes.slice(1);
   if (partes.length > 2) {     // el rango puede venir en dos partes ("SDO 1", "CMD B")
@@ -2426,19 +2433,33 @@ function leerRenglonAscenso(l, rangos) {
   if (!grado) { const uno = rangos.find(x => x.n === normRango(partes[0])); if (uno) grado = uno.r; }
   const nombre = resto.join(' ').trim();
   if (!grado || !nombre) return null;
-  const rol = /sub|segundo|2do|2°|co-?l[ií]der/.test(rolTxt) ? 'sub' : /l[ií]der|lead/.test(rolTxt) ? 'lider' : '';
-  return { grado, nombre, rol };
+  return { grado, nombre, rol: rolAscenso(rolTxt) };
+}
+// "Sub-Lider", "Segundo al mando", "2do al mando" → sub · "Lider", "Primero al mando", "1ero al mando" → lider
+const sinTildesAsc = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const RE_SUB_ASC = /sub\s*-?\s*lider|co\s*-?\s*lider|segundo\s+al\s+mando|2\s*(do|da|°|º|o)?\s+al\s+mando/;
+const RE_LIDER_ASC = /lider|leader|primero\s+al\s+mando|1\s*(ero|ro|er|°|º|o)?\s+al\s+mando/;
+const RE_ROL_ASC = /\s(sub\s*-?\s*l[ií]der|l[ií]der|(primero|segundo|1\s*(ero|ro|er|°|º)?|2\s*(do|°|º)?)\s+al\s+mando)\s*$/i;
+function rolAscenso(t) {
+  const s = sinTildesAsc(t);
+  return RE_SUB_ASC.test(s) ? 'sub' : RE_LIDER_ASC.test(s) ? 'lider' : '';
 }
 
 // Tipo de actividad según un texto (el título del informe)
+// Entrenamiento: "Entrenamiento", "Ent", "Cap", "Capa", "Capacitación"
+// Rol de PJ: "RolPJ", "Rol de PJ", "Operativo" · Misión: "Misión", "Ataque" (Anaxes, SV1/SV2…) · Minirol
+// Si aparece más de una palabra, gana la que está primero en el texto.
+const PALABRAS_TIPO_ASC = [
+  ['minirol', /MINI\s*-?\s*ROL/],
+  ['rol_pj',  /\bROL(ES)?\s*(DE\s*)?PJ\b|\bOPERATIVOS?\b/],
+  ['mision',  /\bMISION(ES)?\b|\bATAQUES?\b/],
+  ['ent',     /\bENTRENAMIENTOS?\b|\bENTS?\b|\bCAPA?S?\b|\bCAPACITACION(ES)?\b/],
+];
 function tipoInformeAscenso(t) {
-  const s = String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
-  if (/MINI\s*-?\s*ROL/.test(s)) return 'minirol';
-  if (/ROL(ES)?\s*(DE\s*)?PJ|ROLPJ/.test(s)) return 'rol_pj';
-  if (/CAPACITACION/.test(s)) return 'cap';
-  if (/MISION/.test(s)) return 'mision';
-  if (/ENTRENAMIENTO|\bENT\b/.test(s)) return 'ent';
-  return '';
+  const s = sinTildesAsc(t).toUpperCase();
+  let mejor = '', pos = Infinity;
+  for (const [tipo, re] of PALABRAS_TIPO_ASC) { const m = re.exec(s); if (m && m.index < pos) { pos = m.index; mejor = tipo; } }
+  return mejor;
 }
 
 // Lee el mensaje completo de un informe (o solo la lista de participantes).
@@ -2458,8 +2479,6 @@ function leerInformeAscenso(texto) {
   }
   if (!titulo) titulo = todas.find(x => x && !/^</.test(x) && !/^(#|\*\*|[-+]|━)/.test(x)) || '';
   titulo = titulo.replace(/[*_`#]/g, '').trim();
-  const tipo = tipoInformeAscenso(titulo) || '';
-  const link = (/https:\/\/(?:[a-z]+\.)?(?:discord\.com|discordapp\.com)\/channels\/[\d/]+/i.exec(texto || '') || [''])[0];
 
   // Participantes: lo que viene después de "PARTICIPANTES" hasta que cierra el bloque; si no hay ese título,
   // los renglones que empiezan con "<"; si tampoco, todos los renglones (una lista pegada sola).
@@ -2476,7 +2495,13 @@ function leerInformeAscenso(texto) {
     const r = leerRenglonAscenso(l, rangos);
     r ? lineas.push(r) : noLeidas.push(l);
   }
-  return { titulo, tipo, link, lineas, noLeidas };
+  // Tipo: primero por el título; si no lo dice, por el resto del texto (sin los participantes ni los links)
+  let tipo = tipoInformeAscenso(titulo), tipoPor = tipo ? 'titulo' : '';
+  if (!tipo) {
+    const resto = todas.filter(x => !candidatas.includes(x)).join('\n').replace(/https?:\/\/\S+/g, ' ');
+    tipo = tipoInformeAscenso(resto); if (tipo) tipoPor = 'texto';
+  }
+  return { titulo, tipo, tipoPor, lineas, noLeidas };
 }
 
 // Recuento por persona. Cada persona: { k, nombre, grado, por: {tipo: n}, actividades, lider, sub, informes: [índices] }
@@ -2593,13 +2618,13 @@ async function vistaAscensos(cont) {
         </div>
         <label class="campo"><span>Link del informe en Discord</span>
           <input id="asc-link" type="url" class="mono" placeholder="https://discord.com/channels/…">
-          <small class="ayuda-campo">Clic derecho en el mensaje del informe → Copiar enlace del mensaje. Si el mensaje trae el link, se completa solo.</small></label>
+          <small class="ayuda-campo">El link de este mismo informe: clic derecho en el mensaje → Copiar enlace del mensaje.</small></label>
         <label class="campo"><span>Mensaje del informe</span>
           <textarea id="asc-texto" class="mono" spellcheck="false" placeholder="Pegá acá el mensaje completo del informe (o solo la lista de participantes)"></textarea></label>
         <div class="asc-previa" id="asc-previa"></div>
         <div class="asc-botones">
           <button class="btn primario" id="asc-agregar">+ Agregar informe</button>
-          <span class="tenue" style="font-size:12.5px">Participantes: un rango y un nombre por renglón. "(Líder)" o "(Sublíder / segundo al mando)" marcan el rol.</span>
+          <span class="tenue" style="font-size:12.5px">Participantes: un rango y un nombre por renglón. "Líder / 1ero al mando" o "Sub-Líder / 2do al mando" marcan el rol (no suman actividades, suman liderazgos).</span>
         </div>
       </section>
       <section class="tarjeta">
@@ -2611,13 +2636,12 @@ async function vistaAscensos(cont) {
     </div>`;
 
   const marcados = () => $$('input[name=cuenta]:checked', cont).map(x => x.value);
-  const opcionesTipo = sel => Object.entries(TIPOS_INFORME_ASC).map(([k, t]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(t.nombre)}</option>`).join('');
+  const opcionesTipo = sel => Object.entries(TIPOS_INFORME_ASC).filter(([k, t]) => !t.oculto || k === sel).map(([k, t]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(t.nombre)}</option>`).join('');
   let tipoManual = '';   // tipo elegido a mano en la vista previa (si el título no lo dice)
   function previa() {
     const t = $('#asc-texto').value;
     if (!t.trim()) { $('#asc-previa').innerHTML = ''; return; }
     const inf = leerInformeAscenso(t), rangos = rangosDeGrupos(marcados());
-    if (inf.link && !$('#asc-link').value.trim()) $('#asc-link').value = inf.link;
     const si = inf.lineas.filter(l => rangos.has(normRango(l.grado))), no = inf.lineas.filter(l => !rangos.has(normRango(l.grado)));
     const lid = si.filter(l => l.rol === 'lider'), sub = si.filter(l => l.rol === 'sub');
     const tipo = tipoManual || inf.tipo;
@@ -2625,7 +2649,7 @@ async function vistaAscensos(cont) {
       <div class="asc-previa-cab"><span class="dato-etiqueta">Título</span> <strong>${esc(inf.titulo || '—')}</strong></div>
       <div class="asc-previa-cab"><span class="dato-etiqueta">Tipo</span>
         <select class="entrada mini" id="asc-tipo" style="width:auto">${tipo ? '' : '<option value="">— Elegí el tipo —</option>'}${opcionesTipo(tipo)}</select>
-        ${inf.tipo ? '<span class="tenue">(detectado por el título)</span>' : '<span class="asc-error">No se pudo saber por el título: elegilo</span>'}</div>
+        ${inf.tipo ? `<span class="tenue">(detectado por el ${inf.tipoPor === 'titulo' ? 'título' : 'texto del informe'})</span>` : '<span class="asc-error">No se pudo saber por el texto: elegilo</span>'}</div>
       <div><strong>${si.length}</strong> cuentan${lid.length ? ` · líder: ${esc(lid.map(l => l.nombre).join(', '))}` : ''}${sub.length ? ` · sublíder: ${esc(sub.map(l => l.nombre).join(', '))}` : ''}
         ${si.length ? `<span class="tenue">(${esc(si.map(l => `${l.grado} ${l.nombre}`).join(', '))})</span>` : ''}</div>
       ${no.length ? `<div class="tenue">${no.length} no cuentan por rango: ${esc(no.map(l => `${l.grado} ${l.nombre}`).join(', '))}</div>` : ''}
