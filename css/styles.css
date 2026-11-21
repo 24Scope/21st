@@ -2,45 +2,40 @@
    Base de Datos 21 — estilos
    ===================================================================== */
 :root {
-  --fondo: #f4f5f7;
-  --superficie: #ffffff;
-  --superficie-2: #f8f9fb;
-  --borde: #e2e5ea;
-  --borde-fuerte: #cdd2da;
-  --texto: #1b1f27;
-  --texto-2: #5b6372;
-  --texto-3: #8a92a1;
-  --acento: #b8862b;
-  --acento-suave: #f6eedd;
-  --acento-texto: #7a5714;
-  --lateral: #14171d;
-  --lateral-2: #1d2129;
-  --lateral-texto: #c9ced8;
-  --peligro: #c2410c;
-  --exito: #15803d;
-  --bloqueo: #eef0f3;
-  --seleccion: #2563eb;
-  --sombra: 0 1px 2px rgba(16,24,40,.06), 0 4px 16px rgba(16,24,40,.06);
-  --radio: 10px;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --fondo: #0f1115; --superficie: #171a21; --superficie-2: #1c2029; --borde: #2a2f3a; --borde-fuerte: #3a404d;
-    --texto: #e8eaef; --texto-2: #a3aab8; --texto-3: #747c8c; --acento: #d9a441; --acento-suave: #2d2516; --acento-texto: #e9c27a;
-    --lateral: #0b0d11; --lateral-2: #161920; --bloqueo: #232731; --seleccion: #60a5fa; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --fondo: #0f1115; --superficie: #171a21; --superficie-2: #1c2029; --borde: #2a2f3a; --borde-fuerte: #3a404d;
-  --texto: #e8eaef; --texto-2: #a3aab8; --texto-3: #747c8c; --acento: #d9a441; --acento-suave: #2d2516; --acento-texto: #e9c27a;
-  --lateral: #0b0d11; --lateral-2: #161920; --bloqueo: #232731; --seleccion: #60a5fa; color-scheme: dark;
+  /* Tema oscuro azul noche. --marca es el color de la legión (#5a2a36);
+     --acento es el mismo tono, más claro, para líneas y bordes que tienen que verse sobre el fondo oscuro. */
+  --marca: #5a2a36;
+  --marca-2: #7a3648;
+  --acento: #b3566e;
+  --acento-suave: #3a2635;
+  --acento-texto: #eab0bf;
+  --brillo: rgba(179, 86, 110, .45);
+  --fondo: #1b1c2c;
+  --superficie: #25273b;
+  --superficie-2: #2c2e45;
+  --borde: #34374f;
+  --borde-fuerte: #444866;
+  --texto: #ebebf5;
+  --texto-2: #a6a8c4;
+  --texto-3: #757896;
+  --lateral: #212336;
+  --lateral-2: #2c2e46;
+  --lateral-texto: #b4b6d1;
+  --peligro: #f2727f;
+  --exito: #4ade80;
+  --bloqueo: #232539;
+  --seleccion: #8fa8ff;
+  --sombra: 0 10px 30px rgba(6, 7, 18, .35);
+  --radio: 14px;
+  --fuente: "Montserrat", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fuente-titulo: "Russo One", "Montserrat", system-ui, sans-serif;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--fuente);
   font-size: 14px; color: var(--texto); background: var(--fondo);
   -webkit-font-smoothing: antialiased;
 }
@@ -678,3 +673,100 @@ a.link-perfil:hover { color: var(--acento); text-decoration: underline; }
 .perfil-totales { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .perfil-totales .tarjeta { padding: 14px 16px; }
 @media (max-width: 860px) { .perfil-cabecera { flex-wrap: wrap; } .perfil-avatar { width: 48px; height: 48px; font-size: 22px; } }
+
+
+/* =====================================================================
+   Tema visual (azul noche + bordó #5a2a36, brillos suaves)
+   ===================================================================== */
+body { background:
+  radial-gradient(900px 500px at 85% -10%, rgba(90, 42, 54, .22), transparent 60%),
+  radial-gradient(700px 500px at -10% 110%, rgba(90, 42, 54, .14), transparent 60%),
+  var(--fondo); background-attachment: fixed; }
+::selection { background: var(--marca-2); color: #fff; }
+* { scrollbar-width: thin; scrollbar-color: var(--borde-fuerte) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--borde-fuerte); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+a { color: var(--acento-texto); }
+
+/* Títulos con la tipografía de títulos */
+.marca-texto, .barra-superior h1, .dato-grande, .rev-total-n, .perfil-nombre, .rev-titulo, .asc-cab-titulo h2, .espera h2 {
+  font-family: var(--fuente-titulo); font-weight: 400; letter-spacing: .02em; }
+.barra-superior h1 { font-size: 19px; text-transform: uppercase; letter-spacing: .05em; }
+.dato-grande, .rev-total-n { letter-spacing: 0; }
+.tarjeta h3, .seccion-titulo, .rev-sub { letter-spacing: .02em; }
+
+/* Logo */
+.marca-logo { background: linear-gradient(140deg, var(--marca-2), var(--marca)); border: 1px solid var(--acento);
+  box-shadow: 0 0 16px var(--brillo), inset 0 1px 0 rgba(255,255,255,.12); font-family: var(--fuente-titulo); font-weight: 400; }
+
+/* Botones */
+.btn { background: var(--superficie-2); border-color: var(--borde-fuerte); border-radius: 10px; transition: background .15s, border-color .15s, box-shadow .15s; }
+.btn:hover { background: #33365a; border-color: #565b80; }
+.btn.primario { background: var(--marca); border-color: var(--acento); color: #fff; box-shadow: 0 0 14px rgba(179, 86, 110, .3); }
+.btn.primario:hover { background: var(--marca-2); filter: none; box-shadow: 0 0 20px var(--brillo); }
+.btn.peligro { color: var(--peligro); }
+.btn-icono:hover { background: var(--superficie-2); }
+
+/* Campos */
+.campo input, .campo select, .campo textarea, .entrada { background: #1f2133; border-color: var(--borde-fuerte); border-radius: 10px; }
+.campo input:focus, .campo select:focus, .campo textarea:focus, .entrada:focus,
+.foro-responder:focus-within, .selector-acomp:focus-within { border-color: var(--acento); box-shadow: 0 0 0 3px rgba(179, 86, 110, .18), 0 0 14px rgba(179, 86, 110, .18); }
+select option { background: var(--superficie); color: var(--texto); }
+
+/* Pantalla de acceso */
+.acceso { background:
+  radial-gradient(800px 500px at 50% -10%, rgba(90, 42, 54, .45), transparent 65%), var(--fondo); }
+.acceso-tarjeta { background: linear-gradient(180deg, #2a2c43, var(--superficie)); border-color: var(--borde-fuerte); border-radius: 18px;
+  box-shadow: var(--sombra), 0 0 0 1px rgba(179, 86, 110, .12); }
+.pestanas { background: #1f2133; }
+.pestana.activa { background: var(--marca); color: #fff; box-shadow: 0 0 12px rgba(179, 86, 110, .3); }
+
+/* Menú lateral */
+.lateral { background: linear-gradient(180deg, #23253a, #1e2033); border-right: 1px solid var(--borde); }
+.menu-grupo { color: var(--texto-3); letter-spacing: .12em; }
+.menu-item { border-radius: 10px; color: var(--lateral-texto); font-weight: 500; transition: background .15s, color .15s; }
+.menu-item:hover { background: var(--lateral-2); color: #fff; }
+.menu-item.activo { background: linear-gradient(90deg, rgba(90, 42, 54, .55), rgba(90, 42, 54, .12)); color: #fff;
+  box-shadow: inset 3px 0 0 var(--acento); }
+.menu-icono { width: 20px; height: 20px; display: inline-grid; place-items: center; color: var(--texto-3); font-size: 12px; flex: none; transition: color .15s, filter .15s; }
+.menu-icono svg { width: 18px; height: 18px; }
+.menu-item:hover .menu-icono { color: var(--texto-2); }
+.menu-item.activo .menu-icono { color: var(--acento-texto); filter: drop-shadow(0 0 5px var(--brillo)); }
+.menu-contador { background: var(--marca); border: 1px solid var(--acento); color: #fff; box-shadow: 0 0 8px var(--brillo); }
+.lateral-pie { border-top-color: var(--borde); }
+.avatar { background: var(--marca); color: #fff; border: 1px solid var(--acento); box-shadow: 0 0 10px var(--brillo); }
+.usuario-rango { color: var(--texto-3); }
+.btn.fantasma { border-color: var(--borde-fuerte); color: var(--lateral-texto); }
+.btn.fantasma:hover { background: var(--lateral-2); border-color: var(--acento); color: #fff; }
+
+/* Barra superior */
+.barra-superior { background: rgba(27, 28, 44, .75); backdrop-filter: blur(8px); border-bottom: 1px solid var(--borde); position: relative; }
+.barra-superior::after { content: ""; position: absolute; left: 24px; bottom: -1px; width: 120px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--acento), transparent); box-shadow: 0 0 10px var(--brillo); }
+.chip { background: var(--superficie-2); border-color: var(--borde-fuerte); }
+.chip.demo { background: var(--acento-suave); color: var(--acento-texto); border-color: rgba(179, 86, 110, .4); }
+.chip.ok { color: var(--exito); border-color: rgba(74, 222, 128, .3); }
+
+/* Tarjetas */
+.tarjeta { background: linear-gradient(180deg, #282a40, var(--superficie)); border-color: var(--borde); border-radius: var(--radio);
+  box-shadow: 0 6px 20px rgba(6, 7, 18, .22); }
+.tarjeta-link:hover { border-color: var(--acento); box-shadow: 0 0 18px rgba(179, 86, 110, .18); }
+.dato-grande { color: #fff; text-shadow: 0 0 18px rgba(179, 86, 110, .25); }
+
+/* Tablas */
+table.datos th, .tabla-vista th { color: var(--texto-2); }
+table.datos tbody tr:hover td, .tabla-vista tbody tr:hover td { background: rgba(255, 255, 255, .025); }
+.hoja-contenedor { border-radius: 0 0 var(--radio) var(--radio); }
+
+/* Elementos con el color de la marca */
+.cal-dia.hoy .cal-num { background: var(--marca); border: 1px solid var(--acento); box-shadow: 0 0 10px var(--brillo); }
+.barra-total span { background: linear-gradient(90deg, var(--marca), var(--acento)); box-shadow: 0 0 8px var(--brillo); }
+.rev-item.activo .rev-n { background: var(--marca); border-color: var(--acento); box-shadow: 0 0 8px var(--brillo); }
+.rev-item.activo { background: linear-gradient(90deg, rgba(90, 42, 54, .5), rgba(90, 42, 54, .15)); }
+.rev-total { background: linear-gradient(120deg, rgba(90, 42, 54, .35), var(--superficie-2) 60%); border-color: rgba(179, 86, 110, .25); }
+.rev-avatar, .perfil-avatar { background: linear-gradient(140deg, var(--marca-2), var(--marca)); border: 1px solid var(--acento);
+  box-shadow: 0 0 16px var(--brillo); color: #fff; }
+a.sub:hover, .copiar:hover, a.link-perfil:hover { color: var(--acento-texto); }
+.pestanas-vista a.activa { color: var(--acento-texto); border-bottom-color: var(--acento); }
+.mes.activo { box-shadow: inset 0 2px 0 var(--acento), 0 0 12px rgba(179, 86, 110, .15); }

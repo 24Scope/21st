@@ -3,6 +3,31 @@
    ===================================================================== */
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+/* Íconos de línea del menú (SVG). Si una sección no tiene, usa el símbolo de config.js */
+const ICONOS_MENU = {
+  inicio:       '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h5v-6h4v6h5V9"/>',
+  perfil:       '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.4-4 4.4-6 8-6s6.6 2 8 6"/>',
+  calendario:   '<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  reglamento:   '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19M9 7h6M9 11h6"/>',
+  actividad:    '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  inactividad:  '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/>',
+  foro:         '<rect x="8" y="7" width="8" height="13" rx="4"/><path d="M12 7V5M9.5 4.5 10.5 6M14.5 4.5 13.5 6M4 13h4M16 13h4M5 19l3-1.5M19 19l-3-1.5M5 8l3 2M19 8l-3 2"/>',
+  suboficiales: '<path d="m5 9 7-4 7 4M5 14l7-4 7 4M5 19l7-4 7 4"/>',
+  elites:       '<path d="M12 3l8 3v6c0 4.6-3.4 8-8 9-4.6-1-8-4.4-8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+  bu:           '<path d="M12 2.5 20.5 7.3v9.4L12 21.5l-8.5-4.8V7.3z"/><circle cx="12" cy="12" r="3"/>',
+  ascensos:     '<path d="M12 20V5M5.5 11.5 12 5l6.5 6.5"/><path d="M5 20h14"/>',
+  soldados:     '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>',
+  cabos:        '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>',
+  miembros:     '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 15.2c2 .6 3.2 2.2 3.7 4.8"/>',
+  oficiales:    '<path d="m12 3 2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9l-5.4 2.9 1.1-6.1-4.5-4.3 6.1-.8z"/>',
+  revision:     '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
+  usuarios:     '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+};
+const iconoMenu = (id, simbolo) => ICONOS_MENU[id]
+  ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONOS_MENU[id]}</svg>`
+  : esc(simbolo || '•');
+
 const DIAS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 
 const estado = {
@@ -209,7 +234,7 @@ function pintarMenu() {
   let html = '', grupo = null;
   for (const s of seccionesVisibles()) {
     if (s.grupo !== grupo) { grupo = s.grupo; if (grupo) html += `<div class="menu-grupo">${esc(grupo)}</div>`; }
-    html += `<a class="menu-item" href="#/${s.id}" data-id="${s.id}"><span class="menu-icono">${s.icono}</span>${esc(s.titulo)}</a>`;
+    html += `<a class="menu-item" href="#/${s.id}" data-id="${s.id}"><span class="menu-icono">${iconoMenu(s.id, s.icono)}</span>${esc(s.titulo)}</a>`;
   }
   $('#menu').innerHTML = html;
 }
@@ -280,9 +305,9 @@ async function vistaInicio(cont) {
     <div class="rejilla" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:16px">
       <div class="tarjeta"><h3>Próximos eventos</h3>${listaEventos}</div>
       <div class="tarjeta"><h3>Accesos rápidos</h3><ul class="lista-simple">
-        <li><a class="menu-item" style="color:var(--texto)" href="#/calendario"><span class="menu-icono">▤</span>Calendario</a></li>
-        <li><a class="menu-item" style="color:var(--texto)" href="#/reglamento"><span class="menu-icono">§</span>Reglamento del calendario</a></li>
-        <li><a class="menu-item" style="color:var(--texto)" href="#/miembros"><span class="menu-icono">☰</span>Miembros de la legión (${visibles})</a></li>
+        <li><a class="menu-item" style="color:var(--texto)" href="#/calendario"><span class="menu-icono">${iconoMenu('calendario')}</span>Calendario</a></li>
+        <li><a class="menu-item" style="color:var(--texto)" href="#/reglamento"><span class="menu-icono">${iconoMenu('reglamento')}</span>Reglamento del calendario</a></li>
+        <li><a class="menu-item" style="color:var(--texto)" href="#/miembros"><span class="menu-icono">${iconoMenu('miembros')}</span>Miembros de la legión (${visibles})</a></li>
       </ul></div>
     </div>`;
 }
