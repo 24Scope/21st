@@ -113,6 +113,11 @@ function crearApiSupabase() {
     async listarActividades(limite = 200) {
       return ok(await sb.from('actividades').select('*').order('creado_en', { ascending: false }).limit(limite));
     },
+    // Actividades vigentes (no anuladas) con fecha entre desde y hasta (inclusive)
+    async listarActividadesEntre(desde, hasta) {
+      return ok(await sb.from('actividades').select('*').eq('anulada', false).gte('fecha', desde).lte('fecha', hasta)
+        .order('fecha', { ascending: false }).limit(10000));
+    },
     async registrarActividad(a) {
       return ok(await sb.rpc('registrar_actividad', { p_tipo: a.tipo, p_fecha: a.fecha, p_hora: a.hora || '',
         p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [], p_especializacion: a.especializacion || null }));
@@ -316,6 +321,7 @@ function crearApiDemo() {
 
     async listarTiposActividad() { return []; },
     async listarActividades() { return []; },
+    async listarActividadesEntre() { return []; },
     async listarInactividades() { return (leer().inactividades || []).slice(); },
     async listarInactividadesEntre(d, h) { return (leer().inactividades || []).filter(x => x.desde <= h && x.hasta >= d); },
     async crearInactividad(x) {

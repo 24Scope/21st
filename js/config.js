@@ -226,5 +226,6 @@ const SECCIONES = [
   { id: 'cabos',        titulo: 'Actividad Cabos (14 días)',         icono: '●', grupo: 'Oficialidad',  rangoMinimo: 1, oculta: true },
   { id: 'miembros',     titulo: 'Miembros de la legión',             icono: '☰', grupo: 'Comandancia',  rangoMinimo: 1 },
   { id: 'oficiales',    titulo: 'Actividad Oficiales y Comandantes', icono: '★', grupo: 'Comandancia',  rangoMinimo: 1 },
+  { id: 'revision',     titulo: 'Revisión de actividad',             icono: '◎', grupo: 'Comandancia',  rangoMinimo: 1 },
   { id: 'usuarios',     titulo: 'Usuarios y rangos',                 icono: '⚙', grupo: 'Comandancia',  rangoMinimo: 8 },
 ];
