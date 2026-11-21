@@ -504,7 +504,7 @@ function ordenarFilasRegistro(config, lista) {
 }
 
 // Registros que abren en modo Vista (resumen y tabla para leer); el resto abre directo en la planilla
-const REGISTROS_CON_VISTA = ['elites', 'suboficiales', 'bu', 'soldados', 'cabos'];
+const REGISTROS_CON_VISTA = ['oficiales', 'elites', 'suboficiales', 'bu', 'soldados', 'cabos'];
 
 function valorFijo(m, f) {
   const v = m[f.campo];
