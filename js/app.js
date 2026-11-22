@@ -21,6 +21,7 @@ const ICONOS_MENU = {
   cabos:        '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>',
   miembros:     '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 15.2c2 .6 3.2 2.2 3.7 4.8"/>',
   oficiales:    '<path d="m12 3 2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9l-5.4 2.9 1.1-6.1-4.5-4.3 6.1-.8z"/>',
+  discord:      '<path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-4.5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/><circle cx="9" cy="11.5" r="1"/><circle cx="15" cy="11.5" r="1"/>',
   revision:     '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
   usuarios:     '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
 };
@@ -255,7 +256,7 @@ function navegar() {
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
   cont.scrollTop = 0;
 
-  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad, ascensos: vistaAscensos, revision: vistaRevision };
+  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad, ascensos: vistaAscensos, revision: vistaRevision, discord: vistaDiscord };
   const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
   Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
 }
@@ -2407,6 +2408,78 @@ document.addEventListener('click', ev => {
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape') cerrarMenuInact(); });
 window.addEventListener('hashchange', cerrarMenuInact);
 document.addEventListener('scroll', cerrarMenuInact, true);
+
+/* ============================================================ INTEGRACIÓN DE DISCORD (experimento) */
+// Prueba de meter Discord dentro de la web. El enlace se guarda solo en este navegador.
+const CLAVE_DISCORD_URL = 'bd21_discord_url';
+const RE_LINK_CANAL = /^https:\/\/(?:[a-z]+\.)?(?:discord\.com|discordapp\.com)\/channels\/(\d+|@me)\/(\d+)(?:\/(\d+))?/i;
+
+function leerLocal(k) { try { return localStorage.getItem(k) || ''; } catch { return ''; } }
+function guardarLocalTxt(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} }
+
+async function vistaDiscord(cont) {
+  const desdeRuta = estado.params?.get('url') || '';
+  let url = desdeRuta || leerLocal(CLAVE_DISCORD_URL);
+
+  cont.innerHTML = `
+    <section class="tarjeta disc-control">
+      <div class="disc-cab">
+        <h3>Enlace a probar <span class="etiqueta">Experimento</span></h3>
+        <span class="tenue" style="font-size:12.5px">Se guarda solo en este navegador.</span>
+      </div>
+      <div class="disc-fila">
+        <input id="disc-url" class="entrada mono" type="url" placeholder="https://… (un link de Discord, del widget del servidor o de WidgetBot)" value="${esc(url)}">
+        <button class="btn primario" id="disc-cargar">Guardar y cargar</button>
+        <a class="btn" id="disc-abrir" target="_blank" rel="noopener noreferrer">Abrir en pestaña nueva ↗</a>
+        <button class="btn" id="disc-borrar" title="Borrar el enlace guardado">Borrar</button>
+      </div>
+      <div id="disc-sugerencias" class="disc-sug"></div>
+      <details class="disc-ayuda">
+        <summary>¿Qué enlaces funcionan dentro de la página?</summary>
+        <ul>
+          <li><strong>discord.com</strong> (la app web normal, o el link de un mensaje): Discord no permite mostrarse dentro de otras páginas, así que el recuadro va a quedar en blanco o con un aviso de conexión rechazada. Esos links solo abren en una pestaña nueva.</li>
+          <li><strong>Widget oficial del servidor</strong> (<span class="mono">discord.com/widget?id=…</span>): sí se puede meter. Muestra quién está conectado y un botón para unirse, pero no se pueden leer ni escribir mensajes. Un administrador del servidor tiene que activarlo en Ajustes del servidor → Widget.</li>
+          <li><strong>WidgetBot</strong> (<span class="mono">e2.widgetbot.io/channels/…</span>): es lo más parecido a tener Discord adentro. Permite leer canales y escribir iniciando sesión con Discord. Es un servicio externo y hay que agregar su bot al servidor (lo hace un administrador desde widgetbot.io).</li>
+        </ul>
+        <p class="tenue">Si pegás el link de un canal o de un mensaje de Discord, abajo te sugiere las versiones de widget de ese servidor y canal.</p>
+      </details>
+    </section>
+    <section class="disc-marco" id="disc-marco"></section>`;
+
+  const input = $('#disc-url');
+  function sugerencias(u) {
+    const m = RE_LINK_CANAL.exec(u || '');
+    if (!m || m[1] === '@me') { $('#disc-sugerencias').innerHTML = ''; return; }
+    const [, servidor, canal] = m;
+    const ops = [
+      { txt: 'WidgetBot de ese canal', url: `https://e2.widgetbot.io/channels/${servidor}/${canal}` },
+      { txt: 'Widget oficial del servidor', url: `https://discord.com/widget?id=${servidor}&theme=dark` },
+    ];
+    $('#disc-sugerencias').innerHTML = `<span class="tenue">Es un link de Discord: no se puede mostrar adentro. Probá con:</span>
+      ${ops.map(o => `<button class="btn chico" data-sug="${esc(o.url)}">${esc(o.txt)}</button>`).join('')}`;
+  }
+  function pintar() {
+    const u = url.trim();
+    $('#disc-abrir').hidden = !u; if (u) $('#disc-abrir').href = u;
+    sugerencias(u);
+    if (!u) { $('#disc-marco').innerHTML = '<div class="vacio">Pegá un enlace arriba y tocá <strong>Guardar y cargar</strong>.</div>'; return; }
+    if (!/^https:\/\//i.test(u)) { $('#disc-marco').innerHTML = '<div class="vacio">El enlace tiene que empezar con https://</div>'; return; }
+    $('#disc-marco').innerHTML = `<iframe src="${esc(u)}" title="Discord integrado" allow="clipboard-write; fullscreen"
+      referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+  }
+  function cargar(u) {
+    url = (u ?? input.value).trim(); input.value = url;
+    guardarLocalTxt(CLAVE_DISCORD_URL, url);
+    pintar();
+  }
+  $('#disc-cargar').onclick = () => { cargar(); aviso(url ? 'Enlace guardado.' : 'Enlace borrado.'); };
+  input.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); cargar(); } };
+  input.oninput = () => sugerencias(input.value.trim());
+  $('#disc-borrar').onclick = () => cargar('');
+  $('#disc-sugerencias').onclick = ev => { const b = ev.target.closest('[data-sug]'); if (b) cargar(b.dataset.sug); };
+  if (desdeRuta) guardarLocalTxt(CLAVE_DISCORD_URL, desdeRuta);
+  pintar();
+}
 
 /* ============================================================ REVISIÓN DE ACTIVIDAD (Suboficiales, Oficiales y Comandantes) */
 // Color de la etiqueta de cada tipo de actividad (los tipos nuevos que no estén acá usan gris)

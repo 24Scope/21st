@@ -227,5 +227,6 @@ const SECCIONES = [
   { id: 'miembros',     titulo: 'Miembros de la legión',             icono: '☰', grupo: 'Comandancia',  rangoMinimo: 1 },
   { id: 'oficiales',    titulo: 'Actividad Oficiales y Comandantes', icono: '★', grupo: 'Comandancia',  rangoMinimo: 1 },
   { id: 'revision',     titulo: 'Revisión de actividad',             icono: '◎', grupo: 'Comandancia',  rangoMinimo: 1 },
+  { id: 'discord',      titulo: 'Integración de Discord',            icono: '◌', grupo: 'Comandancia',  rangoMinimo: 1 },
   { id: 'usuarios',     titulo: 'Usuarios y rangos',                 icono: '⚙', grupo: 'Comandancia',  rangoMinimo: 8 },
 ];
