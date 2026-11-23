@@ -1255,7 +1255,7 @@ const ordenarMiembros = lista => lista.sort((a, b) =>
 // En Miembros de la legión solo figuran de Sargento en adelante, más los élites de cualquier rango
 const RANGO_MIN_MIEMBROS = 'SGT';
 const esDeLegion = m => indiceRango(m.grado) >= indiceRango(RANGO_MIN_MIEMBROS) || !!ELITES[m.elite];
-// Rango de la web que corresponde según el rango in-game y la élite (la base de datos lo aplica sola; Rango Scope es aparte)
+// Rango de la web que corresponde según el rango in-game y la élite (la base de datos lo aplica sola; Administrador Web es aparte)
 const rangoWebDe = (grado, elite) => {
   const g = normRango(grado), cat = categoriaDeRango(grado);
   if (g === 'MRL') return 7;
@@ -3967,7 +3967,7 @@ async function arrancar() {
 arrancar();
 
 
-/* ============================================================ MODO ORDEN (Rango Scope) */
+/* ============================================================ MODO ORDEN (Administrador Web) */
 // Con el modo activo se pueden arrastrar nombres (filas o tarjetas con data-mid) para cambiar el orden
 // dentro del mismo rango. El orden se guarda en miembros.orden y lo usan todas las listas.
 const SECCIONES_ORDENABLES = ['escalafon', 'suboficiales', 'elites', 'bu', 'miembros', 'oficiales'];

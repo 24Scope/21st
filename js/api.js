@@ -28,7 +28,7 @@ function crearApiSupabase() {
   async function perfilDe(user) {
     if (!user) return null;
     const p = ok(await sb.from('perfiles').select('*').eq('id', user.id).maybeSingle());
-    // Miembro dado de baja (inactivo): no entra al panel, salvo Rango Scope
+    // Miembro dado de baja (inactivo): no entra al panel, salvo Administrador Web
     if (p && p.estado === 'aprobada' && p.miembro_id && p.rango < 8) {
       const { data: baja } = await sb.rpc('cuenta_de_baja');
       if (baja) p.estado = 'baja';
@@ -72,7 +72,7 @@ function crearApiSupabase() {
       const [m, t] = await Promise.all([sb.from('miembros').select('*').order('nombre'), sb.from('tropas').select('*').order('nombre')]);
       return [...ok(m), ...ok(t).map(x => ({ ...x, tropa: true }))];
     },
-    // Orden manual dentro de cada rango (solo Rango Scope): [{ id, orden }]
+    // Orden manual dentro de cada rango (solo Administrador Web): [{ id, orden }]
     async ordenarMiembros(lista) { ok(await sb.rpc('ordenar_miembros', { p_orden: lista })); },
     // Modelo del retrato propio: 'iconico' | 'bu' | 'gm' | null (automático)
     async elegirModelo(modelo) { ok(await sb.rpc('elegir_modelo', { p_modelo: modelo })); },

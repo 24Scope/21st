@@ -23,7 +23,7 @@ const RANGOS = {
   5: 'Capitán',
   6: 'Comandante',
   7: 'Mariscal',
-  8: 'Rango Scope',
+  8: 'Administrador Web',
 };
 /* Rango de cuenta que administra el panel (Usuarios y rangos, Foro, aprobar cuentas). Los rangos 1 a 7 por ahora tienen los mismos permisos. */
 const RANGO_ADMIN = 8;
