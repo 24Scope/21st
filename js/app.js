@@ -547,6 +547,7 @@ async function vistaRegistro(cat) {
       ${conVista ? `<div class="selector-modo" role="tablist" aria-label="Modo">
         <button data-modo="ver" role="tab">👁 Vista</button>
         <button data-modo="planilla" role="tab">✎ ${puedeEditar() ? 'Editar planilla' : 'Planilla'}</button></div>` : ''}
+      ${config.plantel ? `<button class="btn chico" id="btn-nombres" title="Agregar, editar o quitar nombres de la planilla de este mes">👥 Nombres</button>` : ''}
       <button class="btn chico" id="btn-bloq-celda" title="Bloquear o desbloquear la celda seleccionada (Ctrl+B)">🔒 Bloquear celda</button>
       <button class="btn chico" id="btn-bloq-mes">Bloquear ${textoMes}</button>
       <button class="btn chico" id="btn-desbloq-mes">Desbloquear ${textoMes}</button>
@@ -562,7 +563,7 @@ async function vistaRegistro(cat) {
   const editable = puedeEditar();
   function aplicarModo() {
     const ver = hoja.modo === 'ver';
-    ['#btn-bloq-celda', '#btn-bloq-mes', '#btn-desbloq-mes'].forEach(s => { $(s).hidden = !editable || ver; });
+    ['#btn-bloq-celda', '#btn-bloq-mes', '#btn-desbloq-mes', '#btn-nombres'].forEach(s => { if ($(s)) $(s).hidden = !editable || ver; });
     $('#barra-formula').hidden = ver; $('#ayuda-planilla').hidden = ver;
     $('#hoja-cont').classList.toggle('modo-ver', ver);
     $$('[data-modo]', cont).forEach(b => { b.classList.toggle('activo', b.dataset.modo === hoja.modo); b.setAttribute('aria-selected', b.dataset.modo === hoja.modo); });
@@ -587,6 +588,110 @@ async function vistaRegistro(cat) {
     return `${fechaCorta(ini)} al ${fechaCorta(fin)}`;
   };
 
+  /* ---------- Nombres de la planilla (BU): agregar, editar o quitar a quién figura en el mes */
+  const GRADOS_TROPA = [...CATEGORIA_POR_RANGO.soldados, ...CATEGORIA_POR_RANGO.cabos];
+  const valorPlantel = m => `${m.grado || ''}/${m.elite || ''}`;
+  // Si el mes muestra los nombres heredados de otro, antes de cambiar algo se guardan como propios de este mes
+  async function materializarPlantel(excepto) {
+    if (!hoja.heredado) return;
+    const lista = hoja.filas.filter(m => m.id !== excepto)
+      .map(m => ({ categoria: cat, ...hoja.clave, miembro_id: m.id, columna: COL_PLANTEL, valor: valorPlantel(m) }));
+    if (lista.length) await api.guardarCeldas(lista);
+    hoja.heredado = null;
+  }
+  async function agregarAlPlantel(m) {
+    await materializarPlantel();
+    await api.guardarCeldas([{ categoria: cat, ...hoja.clave, miembro_id: m.id, columna: COL_PLANTEL, valor: valorPlantel(m) }]);
+  }
+  async function quitarDelPlantel(m) {
+    await materializarPlantel(m.id);
+    const celdas = [{ categoria: cat, ...hoja.clave, miembro_id: m.id, columna: COL_PLANTEL, valor: null },
+      ...cols.filter(c => c.tipo !== 'calculada' && hoja.celdas.get(clave(m.id, c.clave))?.valor != null)
+        .map(c => ({ categoria: cat, ...hoja.clave, miembro_id: m.id, columna: c.clave, valor: null }))];
+    await api.guardarCeldas(celdas);
+  }
+  function abrirNombres() {
+    const etiqueta = m => `${m.grado || '—'} ${m.nombre}`;
+    abrirModal(`Nombres · ${config.titulo} · ${nombreHoja()}`, `
+      <div id="nombres-aviso"></div>
+      <div class="nombres-agregar">
+        <label class="campo" style="flex:1"><span>Agregar a la planilla</span>
+          <input class="entrada" id="nombres-buscar" list="nombres-opciones" placeholder="Escribí el nombre…" autocomplete="off"></label>
+        <button class="btn primario" id="nombres-agregar">Agregar</button>
+      </div>
+      <datalist id="nombres-opciones"></datalist>
+      <details class="nombres-nueva"><summary>¿No está? Crear una tropa nueva</summary>
+        <form id="nombres-form-nueva" class="nombres-agregar">
+          <label class="campo" style="flex:1"><span>Nombre</span><input class="entrada" name="nombre" required maxlength="60"></label>
+          <label class="campo"><span>Rango</span><select class="entrada" name="grado">${GRADOS_TROPA.map(g => `<option>${esc(g)}</option>`).join('')}</select></label>
+          <button class="btn">Crear y agregar</button>
+        </form>
+        <p class="ayuda">Los de Sargento para arriba y los élites se cargan en <a href="#/miembros">Miembros de la legión</a>.</p>
+      </details>
+      <div class="nombres-lista" id="nombres-lista"></div>`, c => {
+      const pintarLista = () => {
+        $('#nombres-aviso', c).innerHTML = hoja.heredado
+          ? `<p class="ayuda" style="margin-top:0">Este mes todavía no tiene planilla propia: se muestran los nombres de <strong>${MESES[hoja.heredado.mes - 1]} ${hoja.heredado.anio}</strong>. Con el primer cambio se guarda como la planilla de ${esc(nombreHoja())}.</p>` : '';
+        const ids = new Set(hoja.filas.map(m => m.id));
+        $('#nombres-opciones', c).innerHTML = hoja.personas.filter(m => m.activo && !ids.has(m.id))
+          .map(m => `<option value="${esc(etiqueta(m))}">`).join('');
+        $('#nombres-lista', c).innerHTML = hoja.filas.length ? hoja.filas.map(m => `<div class="nombres-fila" data-id="${m.id}">
+            <span class="nombres-quien"><b>${esc(m.grado || '—')}</b> ${esc(m.nombre)} <small class="tenue">${m.tropa ? 'tropa' : 'Legión'}</small></span>
+            ${m.tropa ? `<button class="btn-link" data-editar-tropa="${m.id}">Editar</button>` : `<a class="btn-link" href="#/miembros">Editar en Miembros</a>`}
+            <button class="btn-link peligro" data-quitar-nombre="${m.id}">Quitar</button></div>`).join('')
+          : '<p class="vacio-chico">Todavía no hay nombres en esta planilla.</p>';
+      };
+      const refrescar = async () => { await cargar(); pintarLista(); };
+      pintarLista();
+      $('#nombres-agregar', c).onclick = async () => {
+        const txt = $('#nombres-buscar', c).value.trim(); if (!txt) return;
+        const ids = new Set(hoja.filas.map(m => m.id));
+        const m = hoja.personas.find(x => !ids.has(x.id) && etiqueta(x) === txt)
+          || hoja.personas.find(x => !ids.has(x.id) && x.nombre.toLowerCase() === txt.toLowerCase());
+        if (!m) return aviso('No encontré a nadie con ese nombre. Si es nuevo, crealo como tropa nueva.', 'error');
+        try { await agregarAlPlantel(m); $('#nombres-buscar', c).value = ''; aviso(`${m.nombre} agregado a ${nombreHoja()}.`); await refrescar(); }
+        catch (e) { fallo(e); }
+      };
+      $('#nombres-buscar', c).onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#nombres-agregar', c).click(); } };
+      $('#nombres-form-nueva', c).onsubmit = async ev => {
+        ev.preventDefault();
+        const f = ev.target, nombre = f.nombre.value.trim(), grado = f.grado.value;
+        if (hoja.personas.some(x => x.nombre.toLowerCase() === nombre.toLowerCase())
+            && !await confirmar('Nombre repetido', `Ya hay alguien llamado ${nombre}. ¿Crear otra tropa igual?`, 'Crear')) return;
+        try {
+          const t = await api.guardarTropa({ nombre, grado, categoria: categoriaDeRango(grado), activo: true });
+          await agregarAlPlantel({ ...t, tropa: true });
+          f.reset(); aviso(`${nombre} creado y agregado a ${nombreHoja()}.`); await refrescar();
+        } catch (e) { fallo(e); }
+      };
+      $('#nombres-lista', c).onclick = async ev => {
+        const q = ev.target.closest('[data-quitar-nombre]'), ed = ev.target.closest('[data-editar-tropa]');
+        if (q) {
+          const m = hoja.filas.find(x => x.id === +q.dataset.quitarNombre);
+          try { await quitarDelPlantel(m); aviso(`${m.nombre} quitado de ${nombreHoja()}.`); await refrescar(); } catch (e) { fallo(e); }
+        }
+        if (ed) {
+          const m = hoja.personas.find(x => x.id === +ed.dataset.editarTropa);
+          const fila = ed.closest('.nombres-fila');
+          fila.innerHTML = `<input class="entrada" value="${esc(m.nombre)}" maxlength="60" style="flex:1">
+            <select class="entrada" style="width:110px">${GRADOS_TROPA.map(g => `<option ${normRango(g) === normRango(m.grado) ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
+            <button class="btn chico primario" data-guardar-tropa>Guardar</button>`;
+          fila.querySelector('[data-guardar-tropa]').onclick = async () => {
+            const nombre = fila.querySelector('input').value.trim(), grado = fila.querySelector('select').value;
+            if (!nombre) return;
+            try {
+              await api.guardarTropa({ id: m.id, nombre, grado, categoria: categoriaDeRango(grado) });
+              if (!hoja.heredado && hoja.filas.some(x => x.id === m.id)) await api.guardarCeldas([{ categoria: cat, ...hoja.clave, miembro_id: m.id, columna: COL_PLANTEL, valor: `${grado}/${m.elite || ''}` }]);
+              aviso('Tropa guardada.'); hoja.personas = await api.listarPersonas(); await refrescar();
+            } catch (e) { fallo(e); }
+          };
+        }
+      };
+    });
+  }
+  if ($('#btn-nombres')) $('#btn-nombres').onclick = abrirNombres;
+  $('#hoja-cont').addEventListener('click', ev => { if (ev.target.closest('[data-abrir-nombres]')) abrirNombres(); });
+
   async function cargar() {
     hoja.clave = claveHoja(config, refActual());
     if (config.periodo) $('#txt-periodo').textContent = nombreHoja();
@@ -609,10 +714,23 @@ async function vistaRegistro(cat) {
     hoja.celdas = new Map(regs.map(r => [clave(r.miembro_id, r.columna), r]));
     // "_plantel" guarda quién figuraba en esa hoja (según los Excel) y con qué rango/élite: "RANGO/ELITE".
     // Si la hoja tiene plantel se muestra solo esa gente, con su rango de ese momento; si no, los miembros activos actuales.
-    const plantel = new Map(regs.filter(r => r.columna === COL_PLANTEL).map(r => [r.miembro_id, r.valor || '']));
+    const plantel = new Map(regs.filter(r => r.columna === COL_PLANTEL && r.valor != null).map(r => [r.miembro_id, r.valor || '']));
     const conDatos = new Set(regs.filter(r => r.columna !== COL_PLANTEL && r.valor !== null && r.valor !== '').map(r => r.miembro_id));
+    hoja.personas = miembros; hoja.heredado = null;
+    // Planillas con lista de nombres por mes (BU): el mes actual y los que vienen, si todavía no tienen la suya,
+    // usan los nombres de la última cargada (con todo en cero). Los meses pasados sin datos quedan vacíos.
+    if (config.plantel && !plantel.size && !config.periodo) {
+      const hoy = new Date();
+      if (k.anio * 100 + k.mes >= hoy.getFullYear() * 100 + hoy.getMonth() + 1) {
+        const prev = await api.plantelAnterior(cat, k.anio, k.mes).catch(() => []);
+        if (JSON.stringify(k) !== JSON.stringify(hoja.clave)) return;
+        if (prev.length) hoja.heredado = { anio: prev[0].anio, mes: prev[0].mes, ids: new Set(prev.map(r => r.miembro_id)) };
+      }
+    }
     const base = plantel.size
       ? miembros.filter(m => plantel.has(m.id) || conDatos.has(m.id))
+      : hoja.heredado ? miembros.filter(m => (hoja.heredado.ids.has(m.id) && m.activo) || conDatos.has(m.id))
+      : config.plantel ? miembros.filter(m => conDatos.has(m.id))
       : miembros.filter(m => (m.activo && config.incluye.includes(m.categoria) && (!config.filtro || config.filtro(m))) || conDatos.has(m.id));
     hoja.filas = ordenarFilasRegistro(config, base.map(m => {
       if (!plantel.has(m.id)) return m;
@@ -628,7 +746,10 @@ async function vistaRegistro(cat) {
   function pintar() {
     const hc = $('#hoja-cont');
     if (!hoja.filas.length) {
-      hc.innerHTML = `<div class="vacio">No hay miembros para <strong>${esc(config.titulo)}</strong> en ${esc(nombreHoja())}.<br><br>
+      hc.innerHTML = config.plantel
+        ? `<div class="vacio">No hay datos de <strong>${esc(config.titulo)}</strong> para ${esc(nombreHoja())}.${editable
+            ? `<br><br><button class="btn" data-abrir-nombres>👥 Agregar nombres</button>` : ''}</div>`
+        : `<div class="vacio">No hay miembros para <strong>${esc(config.titulo)}</strong> en ${esc(nombreHoja())}.<br><br>
         <a class="btn" href="#/miembros">Ir a Miembros</a></div>`;
       actualizarFormula(); return;
     }

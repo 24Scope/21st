@@ -78,8 +78,20 @@ function crearApiSupabase() {
     async elegirModelo(modelo) { ok(await sb.rpc('elegir_modelo', { p_modelo: modelo })); },
     // Quiénes figuran en las planillas de BU (para saber quién está en la BU)
     async listarPlantelBU() {
-      return ok(await sb.from('registros').select('miembro_id,anio,mes').eq('categoria', 'bu').eq('columna', '_plantel')
+      return ok(await sb.from('registros').select('miembro_id,anio,mes').eq('categoria', 'bu').eq('columna', '_plantel').not('valor', 'is', null)
         .order('anio', { ascending: false }).order('mes', { ascending: false }).limit(1000));
+    },
+    // La última planilla con nombres anterior a ese mes: [{ miembro_id, valor, anio, mes }]
+    async plantelAnterior(categoria, anio, mes) {
+      const filas = ok(await sb.from('registros').select('miembro_id,valor,anio,mes').eq('categoria', categoria).eq('columna', '_plantel')
+        .not('valor', 'is', null).or(`anio.lt.${anio},and(anio.eq.${anio},mes.lt.${mes})`)
+        .order('anio', { ascending: false }).order('mes', { ascending: false }).limit(1000));
+      return filas.filter(r => r.anio === filas[0]?.anio && r.mes === filas[0]?.mes);
+    },
+    async guardarTropa(t) {
+      const { id, ...datos } = t;
+      if (id) return ok(await sb.from('tropas').update(datos).eq('id', id).select().single());
+      return ok(await sb.from('tropas').insert(datos).select().single());
     },
     async guardarMiembro(m) {
       const { id, ...datos } = m;
@@ -308,7 +320,17 @@ function crearApiDemo() {
       if (!m) throw new Error('Tu cuenta no está vinculada a un miembro de la legión.');
       m.modelo = modelo; escribir(db);
     },
-    async listarPlantelBU() { return leer().registros.filter(r => r.categoria === 'bu' && r.columna === '_plantel'); },
+    async listarPlantelBU() { return leer().registros.filter(r => r.categoria === 'bu' && r.columna === '_plantel' && r.valor != null); },
+    async plantelAnterior(categoria, anio, mes) {
+      const fs = leer().registros.filter(r => r.categoria === categoria && r.columna === '_plantel' && r.valor != null && r.anio * 100 + r.mes < anio * 100 + mes);
+      const max = Math.max(0, ...fs.map(r => r.anio * 100 + r.mes));
+      return fs.filter(r => r.anio * 100 + r.mes === max);
+    },
+    async guardarTropa(t) {
+      const db = leer(); exigirEdicion(db); db.tropas = db.tropas || [];
+      if (t.id) { const x = db.tropas.find(y => y.id == t.id); Object.assign(x, t); escribir(db); return { ...x }; }
+      const n = { activo: true, elite: '', nombre_iconico: 'No', ...t, id: id(db) }; db.tropas.push(n); escribir(db); return n;
+    },
     async ordenarMiembros(lista) {
       const db = leer(); exigirAdmin(db);
       for (const x of lista) { const m = db.miembros.find(y => y.id === x.id); if (m) m.orden = x.orden; }

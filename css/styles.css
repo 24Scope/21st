@@ -869,3 +869,13 @@ body.ordenando .barra-superior::after { width: 100%; }
 .pend-permiso { min-height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px dashed var(--borde); border-radius: 8px; color: var(--texto); font-size: 13.5px; }
 .pend-permiso small { color: var(--texto-2); }
 .pend-permiso.invalido { color: var(--peligro); border-color: var(--peligro); }
+
+/* Nombres de la planilla (BU) */
+.nombres-agregar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.nombres-nueva { margin: 12px 0; }
+.nombres-nueva summary { cursor: pointer; color: var(--acento-texto); font-size: 13.5px; }
+.nombres-nueva form { margin-top: 10px; }
+.nombres-lista { margin-top: 14px; max-height: 46vh; overflow-y: auto; border-top: 1px solid var(--borde); }
+.nombres-fila { display: flex; align-items: center; gap: 12px; padding: 8px 2px; border-bottom: 1px solid var(--borde); }
+.nombres-quien { flex: 1; min-width: 0; }
+.nombres-quien small { margin-left: 6px; }

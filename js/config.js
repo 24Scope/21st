@@ -145,20 +145,21 @@ const CATEGORIAS = {
     titulo: 'BU',
     incluye: ['comandantes', 'oficiales', 'suboficiales', 'cabos', 'soldados'],
     fijas: [{ campo: 'fecha_ingreso', nombre: 'Fecha ingreso', tipo: 'fecha' }],
+    // plantel: cada mes tiene su lista de nombres. Los meses que todavía no tienen (el actual y los que vienen)
+    // muestran los de la última planilla cargada, en cero; los meses pasados sin datos salen vacíos.
+    plantel: true,
+    // Misiones, entrenamientos y trys se completan solos con "Registrar actividad".
     columnas: [
-      { clave: 'mis_21',      nombre: 'Misiones 21st',             tipo: 'numero' },
-      { clave: 'mis_bu',      nombre: 'Misiones BU',               tipo: 'numero' },
+      { clave: 'misiones',    nombre: 'Misiones',                  tipo: 'numero' },
       { clave: 'ent_bu_ent',  nombre: 'Ent. BU entrenador',        tipo: 'numero' },
       { clave: 'ent_bu_part', nombre: 'Ent. BU participante',      tipo: 'numero' },
-      { clave: 'cap_ent',     nombre: 'Cap. sombra entrenador',    tipo: 'numero' },
-      { clave: 'cap_part',    nombre: 'Cap. sombra participante',  tipo: 'numero' },
       { clave: 'try_ayuda',   nombre: 'Try BU ayudas',             tipo: 'numero' },
       { clave: 'try_org',     nombre: 'Try BU organizador',        tipo: 'numero' },
       { clave: 'total', nombre: 'Total', tipo: 'calculada', numerica: true,
-        calc: v => v('mis_21') + v('mis_bu') + v('ent_bu_ent') + v('ent_bu_part') + v('cap_ent') + v('cap_part') + v('try_ayuda') + v('try_org') },
-      { clave: 'act_check', nombre: 'Act. check',   tipo: 'texto', opciones: ['SI', 'NO', 'N/A'] },
-      { clave: 'estado',    nombre: 'Estado',       tipo: 'texto', opciones: ['ACTIVO', 'INACTIVO'] },
-      { clave: 'decision',  nombre: 'Decisión (CMD+)', tipo: 'texto' },
+        calc: v => v('misiones') + v('ent_bu_ent') + v('ent_bu_part') + v('try_ayuda') + v('try_org') },
+      { clave: 'act_check',    nombre: 'Act. check',    tipo: 'texto', opciones: ['SI', 'NO', 'N/A'] },
+      { clave: 'inactividad',  nombre: 'Inactividad',   tipo: 'texto' },
+      { clave: 'advertencias', nombre: 'Advertencias',  tipo: 'numero' },
     ],
   },
   soldados: {
