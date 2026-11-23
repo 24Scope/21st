@@ -58,6 +58,13 @@ function crearApiSupabase() {
     async listarMiembros() { return ok(await sb.from('miembros').select('*').order('nombre')); },
     // Orden manual dentro de cada rango (solo Rango Scope): [{ id, orden }]
     async ordenarMiembros(lista) { ok(await sb.rpc('ordenar_miembros', { p_orden: lista })); },
+    // Modelo del retrato propio: 'iconico' | 'bu' | 'gm' | null (automático)
+    async elegirModelo(modelo) { ok(await sb.rpc('elegir_modelo', { p_modelo: modelo })); },
+    // Quiénes figuran en las planillas de BU (para saber quién está en la BU)
+    async listarPlantelBU() {
+      return ok(await sb.from('registros').select('miembro_id,anio,mes').eq('categoria', 'bu').eq('columna', '_plantel')
+        .order('anio', { ascending: false }).order('mes', { ascending: false }).limit(1000));
+    },
     async guardarMiembro(m) {
       const { id, ...datos } = m;
       if (id) return ok(await sb.from('miembros').update(datos).eq('id', id).select().single());
@@ -271,6 +278,12 @@ function crearApiDemo() {
     async guardarAjuste(clave, valor) { const db = leer(); exigirAdmin(db); db.ajustes[clave] = valor; escribir(db); },
 
     async listarMiembros() { return leer().miembros.slice().sort((a, b) => a.nombre.localeCompare(b.nombre)); },
+    async elegirModelo(modelo) {
+      const db = leer(); const m = db.miembros.find(x => x.id === usuarioActual(db).miembro_id);
+      if (!m) throw new Error('Tu cuenta no está vinculada a un miembro de la legión.');
+      m.modelo = modelo; escribir(db);
+    },
+    async listarPlantelBU() { return leer().registros.filter(r => r.categoria === 'bu' && r.columna === '_plantel'); },
     async ordenarMiembros(lista) {
       const db = leer(); exigirAdmin(db);
       for (const x of lista) { const m = db.miembros.find(y => y.id === x.id); if (m) m.orden = x.orden; }

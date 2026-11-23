@@ -200,7 +200,7 @@ async function entrarApp(perfil) {
   $('#usuario-rango').textContent = nombreRango(perfil.rango);
   if (perfil.miembro_id) api.listarMiembros().then(ms => {
     const m = ms.find(x => x.id === perfil.miembro_id);
-    if (m) $('#usuario-rango').textContent = `${nombreRango(perfil.rango)} · ${m.grado} ${m.nombre}`;
+    if (m) { $('#usuario-rango').textContent = `${nombreRango(perfil.rango)} · ${m.grado} ${m.nombre}`; pintarAvatarUsuario(m); }
   }).catch(() => {});
   $('#usuario-avatar').textContent = (perfil.nombre || '?').trim().charAt(0).toUpperCase();
   pintarChipPermiso();
@@ -1803,9 +1803,9 @@ async function vistaPerfil(cont) {
       o entrá a <a href="#/miembros">Miembros de la legión</a> y tocá el nombre de alguien para ver su perfil.</div>`;
     return;
   }
-  const [miembros, registros, actividades, tipos, perfiles] = await Promise.all([
+  const [miembros, registros, actividades, tipos, perfiles, idsBU] = await Promise.all([
     api.listarMiembros(), api.listarRegistrosMiembro(miembroId), api.listarActividadesMiembro(miembroId),
-    api.listarTiposActividad(), esAdmin() ? api.listarPerfiles() : Promise.resolve([]),
+    api.listarTiposActividad(), esAdmin() ? api.listarPerfiles() : Promise.resolve([]), idsBUActual(),
   ]);
   const porId = new Map(miembros.map(m => [m.id, m]));
   const m = porId.get(miembroId);
@@ -1835,7 +1835,7 @@ async function vistaPerfil(cont) {
   const dato = (titulo, valor) => valor ? `<div><span class="dato-etiqueta">${titulo}</span><div>${valor}</div></div>` : '';
   cont.innerHTML = `
     <div class="perfil-cabecera tarjeta">
-      <div class="perfil-avatar">${esc((m.nombre || '?').charAt(0).toUpperCase())}</div>
+      <div class="perfil-avatar con-retrato ${retratoDe(m, idsBU).tipo}" id="perfil-retrato">${imgRetrato(m, idsBU)}</div>
       <div class="perfil-principal">
         <div class="perfil-nombre">${esc(m.grado)} ${esc(m.nombre)}
           ${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : ''}
@@ -1850,6 +1850,11 @@ async function vistaPerfil(cont) {
       </div>
       <a class="btn chico" href="#/miembros">← Miembros</a>
     </div>
+    ${m.id === estado.perfil.miembro_id ? `<section class="tarjeta modelo-elegir">
+      <div><h3>Modelo del escalafón</h3>
+        <p class="tenue">Es el retrato que se ve en el Escalafón militar, en tu perfil y en el menú.${modelosDe(m, idsBU).length === 1 ? ' Por ahora solo tenés disponible el modelo GM.' : ''}</p></div>
+      <div class="modelo-opciones" id="modelo-opciones"></div>
+    </section>` : ''}
 
     <div class="herramientas" style="margin-top:18px">
       <h3 style="margin:0;font-size:15px">Resumen del mes</h3>
@@ -2430,23 +2435,37 @@ const NIVELES_ESCALAFON = [
   // Élites que no llegan a Sargento (los de Sargento en adelante ya están en su nivel), como en Miembros de la legión
   { titulo: 'Élites',      filtro: m => esEliteSinSGT(m),            tam: 'm' },
 ];
-function retratoDe(m, idsBU) {
+// Modelos que puede usar un miembro: su icónico (si tiene modelo), el de la BU (si está en la BU) y siempre el GM
+function modelosDe(m, idsBU) {
+  const lista = [];
   if (tieneIconico(m)) {
     let k = m.nombre_iconico.trim().toLowerCase().replace(/\s+/g, '_');
     k = RETRATOS_ALIAS[k] || k;
-    if (RETRATOS_ICONICOS.includes(k)) return { src: `img/escalafon/${k}.webp`, tipo: 'iconico' };
+    if (RETRATOS_ICONICOS.includes(k)) lista.push({ clave: 'iconico', nombre: m.nombre_iconico, src: `img/escalafon/${k}.webp` });
   }
-  return idsBU.has(m.id) ? { src: 'img/escalafon/bu.webp', tipo: 'bu' } : { src: 'img/escalafon/gm.webp', tipo: 'gm' };
+  if (idsBU.has(m.id)) lista.push({ clave: 'bu', nombre: 'Blackout Unit', src: 'img/escalafon/bu.webp' });
+  lista.push({ clave: 'gm', nombre: 'Galactic Marine', src: 'img/escalafon/gm.webp' });
+  return lista;
 }
+// El elegido por el miembro si lo tiene disponible; si no, el primero (icónico > BU > GM)
+function retratoDe(m, idsBU) {
+  const lista = modelosDe(m, idsBU);
+  const x = lista.find(o => o.clave === m.modelo) || lista[0];
+  return { src: x.src, tipo: x.clave };
+}
+// BU actual: quienes figuran en la última planilla de BU cargada (se consulta una vez por sesión)
+let promesaBU = null;
+function idsBUActual() {
+  promesaBU = promesaBU || api.listarPlantelBU().then(rs => {
+    const ultima = rs.reduce((u, r) => Math.max(u, r.anio * 100 + r.mes), 0);
+    return new Set(rs.filter(r => r.anio * 100 + r.mes === ultima).map(r => r.miembro_id));
+  }).catch(() => new Set());
+  return promesaBU;
+}
+const imgRetrato = (m, idsBU, extra = '') => `<img src="${retratoDe(m, idsBU).src}" alt="" decoding="async" ${extra}>`;
 
 async function vistaEscalafon(cont) {
-  const hoy = new Date();
-  const anios = [...new Set([hoy.getFullYear() - 1, hoy.getFullYear()])];
-  const [miembros, ...regsPorAnio] = await Promise.all([api.listarMiembros(), ...anios.map(a => api.listarRegistrosAnio(a))]);
-  // BU: quienes figuran en la última planilla de BU cargada (igual que en Inicio)
-  const plantelBU = regsPorAnio.flat().filter(r => r.categoria === 'bu' && r.columna === COL_PLANTEL);
-  const ultimaBU = plantelBU.reduce((u, r) => Math.max(u, r.anio * 100 + r.mes), 0);
-  const idsBU = new Set(plantelBU.filter(r => r.anio * 100 + r.mes === ultimaBU).map(r => r.miembro_id));
+  const [miembros, idsBU] = await Promise.all([api.listarMiembros(), idsBUActual()]);
 
   const activos = miembros.filter(m => m.activo);
   const niveles = NIVELES_ESCALAFON.map(n => {
@@ -3669,3 +3688,42 @@ async function guardarOrden(ids) {
   }
   if (cambios.length) await api.ordenarMiembros(cambios);
 }
+
+
+/* ============================================================ RETRATO PROPIO (menú y perfil) */
+async function pintarAvatarUsuario(m) {
+  const ids = await idsBUActual();
+  const r = retratoDe(m, ids);
+  const av = $('#usuario-avatar');
+  av.classList.add('con-retrato'); av.classList.toggle('iconico', r.tipo === 'iconico');
+  av.innerHTML = `<img src="${r.src}" alt="">`;
+}
+// Selector de modelo en el propio perfil
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest('#modelo-opciones [data-modelo]'); if (!b || b.classList.contains('activo')) return;
+  const clave = b.dataset.modelo;
+  $$('#modelo-opciones [data-modelo]').forEach(x => x.disabled = true);
+  try {
+    await api.elegirModelo(clave);
+    aviso('Modelo guardado.');
+    const m = (await api.listarMiembros()).find(x => x.id === estado.perfil.miembro_id);
+    if (m) { pintarAvatarUsuario(m); pintarOpcionesModelo(m); }
+  } catch (e) { fallo(e); $$('#modelo-opciones [data-modelo]').forEach(x => x.disabled = false); }
+});
+async function pintarOpcionesModelo(m) {
+  const cont = $('#modelo-opciones'); if (!cont) return;
+  const ids = await idsBUActual();
+  const lista = modelosDe(m, ids), actual = retratoDe(m, ids).tipo;
+  cont.innerHTML = lista.map(o => `<button class="modelo-op ${o.clave === actual ? 'activo' : ''}" data-modelo="${o.clave}" ${lista.length === 1 ? 'disabled' : ''}>
+    <span class="modelo-img ${o.clave}"><img src="${o.src}" alt=""></span><span>${esc(o.nombre)}</span></button>`).join('');
+  const r = retratoDe(m, ids), pr = $('#perfil-retrato');
+  if (pr) { pr.className = `perfil-avatar con-retrato ${r.tipo}`; pr.innerHTML = `<img src="${r.src}" alt="">`; }
+}
+// Al abrir el propio perfil, dibuja las opciones
+new MutationObserver(() => {
+  const cont = $('#modelo-opciones');
+  if (cont && !cont.dataset.listo) {
+    cont.dataset.listo = '1';
+    api.listarMiembros().then(ms => { const m = ms.find(x => x.id === estado.perfil?.miembro_id); if (m) pintarOpcionesModelo(m); }).catch(() => {});
+  }
+}).observe($('#contenido'), { childList: true, subtree: true });

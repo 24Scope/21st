@@ -844,3 +844,23 @@ body.ordenando #contenido [data-mid]:hover { outline: 1px dashed var(--acento); 
 body.ordenando #contenido [data-mid] a { pointer-events: none; }
 body.ordenando .barra-superior::after { width: 100%; }
 #contenido [data-mid].arrastrando { opacity: .45; outline: 2px dashed var(--acento) !important; }
+
+/* Retrato del modelo en el menú y en el perfil */
+.avatar.con-retrato, .perfil-avatar.con-retrato { padding: 0; overflow: hidden; background: radial-gradient(circle at 50% 35%, #3a3d5c, #1c1d2e 75%); }
+.avatar.con-retrato img, .perfil-avatar.con-retrato img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.perfil-avatar.con-retrato { width: 88px; height: 88px; border-radius: 18px; }
+.perfil-avatar.con-retrato.bu, .modelo-img.bu { background: radial-gradient(circle at 50% 35%, #3b3140, #19181f 75%); }
+.avatar.con-retrato { border-radius: 10px; }
+.modelo-elegir { display: flex; gap: 18px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 14px; }
+.modelo-elegir h3 { margin: 0 0 4px; }
+.modelo-elegir p { margin: 0; font-size: 13px; max-width: 380px; }
+.modelo-opciones { display: flex; gap: 10px; flex-wrap: wrap; }
+.modelo-op { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 8px 7px; width: 104px; cursor: pointer;
+  border-radius: 12px; border: 1px solid var(--borde-fuerte); background: var(--superficie-2); color: var(--texto-2); font: inherit; font-size: 12px;
+  transition: border-color .15s, box-shadow .15s, color .15s; }
+.modelo-op:hover:not(:disabled) { border-color: var(--acento); color: #fff; }
+.modelo-op.activo { border-color: var(--acento); color: #fff; background: rgba(90, 42, 54, .35); box-shadow: 0 0 14px var(--brillo); }
+.modelo-op:disabled:not(.activo) { opacity: .6; cursor: default; }
+.modelo-op:disabled.activo { cursor: default; }
+.modelo-img { width: 84px; height: 84px; border-radius: 10px; overflow: hidden; background: radial-gradient(circle at 50% 35%, #3a3d5c, #1c1d2e 75%); }
+.modelo-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
