@@ -56,6 +56,8 @@ function crearApiSupabase() {
     async guardarAjuste(clave, valor) { ok(await sb.from('ajustes').update({ valor }).eq('clave', clave)); },
 
     async listarMiembros() { return ok(await sb.from('miembros').select('*').order('nombre')); },
+    // Orden manual dentro de cada rango (solo Rango Scope): [{ id, orden }]
+    async ordenarMiembros(lista) { ok(await sb.rpc('ordenar_miembros', { p_orden: lista })); },
     async guardarMiembro(m) {
       const { id, ...datos } = m;
       if (id) return ok(await sb.from('miembros').update(datos).eq('id', id).select().single());
@@ -269,6 +271,11 @@ function crearApiDemo() {
     async guardarAjuste(clave, valor) { const db = leer(); exigirAdmin(db); db.ajustes[clave] = valor; escribir(db); },
 
     async listarMiembros() { return leer().miembros.slice().sort((a, b) => a.nombre.localeCompare(b.nombre)); },
+    async ordenarMiembros(lista) {
+      const db = leer(); exigirAdmin(db);
+      for (const x of lista) { const m = db.miembros.find(y => y.id === x.id); if (m) m.orden = x.orden; }
+      escribir(db);
+    },
     async guardarMiembro(m) {
       const db = leer(); exigirEdicion(db);
       if (m.id) { const i = db.miembros.findIndex(x => x.id == m.id); db.miembros[i] = { ...db.miembros[i], ...m }; escribir(db); return db.miembros[i]; }

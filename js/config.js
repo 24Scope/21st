@@ -54,7 +54,7 @@ const ELITES = {
 /* NOMBRES ICÓNICOS disponibles (desplegable). Cada uno lo puede tener un solo miembro. */
 const ICONICOS = [
   'Bacara', 'Blackout', 'Keller', 'Jet', 'Levet', 'Ki Adi Mundi', 'Yarael Poof', 'Mark', 'Pluto',
-  'Etal', 'RaceTrack', 'Mustang', 'Spark', 'Ridge', 'Finn', 'Contrail', 'Sixseed', 'Stance',
+  'Etal', 'RaceTrack', 'Mustang', 'Spark', 'Ridge', 'Finn', 'Contrail', 'Sixseed', 'Stance', 'Mace Windu',
 ];
 
 /* Categorías de los MIEMBROS (en este orden se listan).
@@ -212,6 +212,7 @@ const TIPOS_EVENTO = [
 const SECCIONES = [
   { id: 'inicio',       titulo: 'Inicio',                            icono: '▦', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'perfil',       titulo: 'Mi perfil',                         icono: '◉', grupo: 'Principal',    rangoMinimo: 1 },
+  { id: 'escalafon',    titulo: 'Escalafón militar',                 icono: '≡', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'calendario',   titulo: 'Calendario',                        icono: '▤', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'reglamento',   titulo: 'Reglamento del calendario',         icono: '§', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'actividad',    titulo: 'Registrar actividad',               icono: '✚', grupo: 'Principal',    rangoMinimo: 1 },

@@ -8,6 +8,7 @@ const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto'
 const ICONOS_MENU = {
   inicio:       '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h5v-6h4v6h5V9"/>',
   perfil:       '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.4-4 4.4-6 8-6s6.6 2 8 6"/>',
+  escalafon:    '<path d="M12 3 4 7l8 4 8-4z"/><path d="m4 12 8 4 8-4M4 17l8 4 8-4"/>',
   calendario:   '<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   reglamento:   '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19M9 7h6M9 11h6"/>',
   actividad:    '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
@@ -251,11 +252,15 @@ function navegar() {
   $('#titulo-seccion').textContent = sec.titulo;
   document.title = `${sec.titulo} · ${NOMBRE_SITIO}`;
   $('#app').classList.remove('menu-abierto');
+  const ordenable = esAdmin() && SECCIONES_ORDENABLES.includes(sec.id);
+  $('#btn-ordenar').hidden = !ordenable;
+  document.body.classList.toggle('ordenando', ordenable && estado.ordenando);
+  $('#btn-ordenar').classList.toggle('activo', !!estado.ordenando);
   const cont = $('#contenido');
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
   cont.scrollTop = 0;
 
-  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad, ascensos: vistaAscensos, revision: vistaRevision };
+  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad, ascensos: vistaAscensos, revision: vistaRevision, escalafon: vistaEscalafon };
   const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
   Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
 }
@@ -638,7 +643,7 @@ async function vistaRegistro(cat) {
       ${cols.map(c => `<th class="${numCol(c) ? 'num' : ''} ${c.tipo === 'calculada' ? 'th-calc' : ''}">${esc(c.nombre)}</th>`).join('')}
       </tr></thead><tbody>`;
     hoja.filas.forEach((m, f) => {
-      html += `<tr class="${m.activo ? '' : 'inactivo'}"><td class="fijo col-n">${f + 1}</td>
+      html += `<tr class="${m.activo ? '' : 'inactivo'}" data-mid="${m.id}" data-rango="${esc(normRango(m.grado))}"><td class="fijo col-n">${f + 1}</td>
         <td class="fijo col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${colInact < 0 ? insigniaInactividad(hoja.inact?.get(m.id), m.nombre) : ''}</td><td class="col-grado">${esc(m.grado)}</td>
         ${fijas.map(x => `<td class="col-grado">${esc(valorFijo(m, x))}</td>`).join('')}`;
       cols.forEach((c, ci) => { html += `<td data-f="${f}" data-c="${ci}"></td>`; });
@@ -665,7 +670,7 @@ async function vistaRegistro(cat) {
           ${cols.map(c => `<th class="${numCol(c) ? 'num' : ''}">${esc(c.nombre)}</th>`).join('')}
         </tr></thead><tbody>
         ${indices.length ? indices.map(f => { const m = hoja.filas[f];
-          return `<tr class="${m.activo ? '' : 'inactivo'}"><td class="col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${colInact < 0 ? insigniaInactividad(hoja.inact?.get(m.id), m.nombre) : ''}</td>
+          return `<tr class="${m.activo ? '' : 'inactivo'}" data-mid="${m.id}" data-rango="${esc(normRango(m.grado))}"><td class="col-nombre" title="${esc(m.discord_id || '')}"><a class="link-perfil" href="#/perfil?id=${m.id}">${esc(m.nombre)}</a>${colInact < 0 ? insigniaInactividad(hoja.inact?.get(m.id), m.nombre) : ''}</td>
             <td class="col-grado" title="${esc(ELITES[m[campo]] || '')}">${esc(config.secciones.columna ? m[campo] : m.grado)}</td>${cols.map((c, ci) => `<td data-f="${f}" data-c="${ci}"></td>`).join('')}</tr>`; }).join('')
           : `<tr><td colspan="${cols.length + 2}" class="vacio-chico">Sin miembros</td></tr>`}
         </tbody><tfoot><tr><td class="col-nombre">Total</td><td></td>
@@ -732,7 +737,7 @@ async function vistaRegistro(cat) {
       const grupos = config.secciones
         ? config.secciones.lista.map(s => ({ titulo: s.titulo, filas: hoja.filas.map((m, f) => s.valores.includes(m[config.secciones.campo]) ? f : -1).filter(f => f >= 0) }))
         : [{ titulo: '', filas: hoja.filas.map((_, f) => f) }];
-      const o = hoja.orden;
+      const o = estado.ordenando ? null : hoja.orden;
       if (o) {
         const col = columnas.find(c => c.id === o.id);
         const clave = f => col.orden ? col.orden(f) : col.num ? numero(col.valor(f)) : String(col.valor(f) || '').toLowerCase();
@@ -760,7 +765,7 @@ async function vistaRegistro(cat) {
       const filasHTML = grupos.map(g => {
         const fs = g.filas.filter(visible);
         return (g.titulo ? `<tr class="fila-grupo"><td colspan="${columnas.length}">${esc(g.titulo)} <span>${fs.length}</span></td></tr>` : '')
-          + (fs.length ? fs.map(f => `<tr class="${hoja.filas[f].activo ? '' : 'inactivo'}">${columnas.map(c => celda(c, f)).join('')}</tr>`).join('')
+          + (fs.length ? fs.map(f => `<tr class="${hoja.filas[f].activo ? '' : 'inactivo'}" data-mid="${hoja.filas[f].id}" data-rango="${esc(normRango(hoja.filas[f].grado))}">${columnas.map(c => celda(c, f)).join('')}</tr>`).join('')
             : `<tr><td colspan="${columnas.length}" class="vacio-chico">${q ? 'Nadie coincide con la búsqueda.' : 'Sin miembros'}</td></tr>`);
       }).join('');
       return `<div class="envoltorio-tabla"><table class="datos tabla-vista"><thead><tr>${columnas.map(c =>
@@ -1068,6 +1073,8 @@ function compararRango(a, b) {
     if (ib < 0) return -1;
     return RANGO_MAYOR_PRIMERO ? ib - ia : ia - ib;
   }
+  const oa = a.orden ?? Infinity, ob = b.orden ?? Infinity;
+  if (oa !== ob) return oa < ob ? -1 : 1;
   return a.nombre.localeCompare(b.nombre);
 }
 const categoriaDeRango = g => Object.keys(CATEGORIA_POR_RANGO).find(c => CATEGORIA_POR_RANGO[c].map(normRango).includes(normRango(g)));
@@ -1107,7 +1114,7 @@ async function vistaMiembros(cont) {
     <p class="ayuda">Clic en un SteamID o Discord para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
 
   function filaHTML(m) {
-    return `<tr class="${m.activo ? '' : 'fila-inactiva'}">
+    return `<tr class="${m.activo ? '' : 'fila-inactiva'}" data-mid="${m.id}" data-rango="${esc(normRango(m.grado))}">
       <td>${esEliteSinSGT(m) ? '<span class="tenue">—</span>' : `<strong>${esc(m.grado) || '—'}</strong>`}</td>
       <td><a class="link-perfil" href="#/perfil?id=${m.id}"><strong>${esc(m.nombre)}</strong></a>${m.notas ? ` <span class="nota" title="${esc(m.notas)}">ⓘ</span>` : ''}</td>
       <td>${esc(m.nombre_jedi) || '<span class="tenue">—</span>'}</td>
@@ -2408,6 +2415,78 @@ document.addEventListener('keydown', ev => { if (ev.key === 'Escape') cerrarMenu
 window.addEventListener('hashchange', cerrarMenuInact);
 document.addEventListener('scroll', cerrarMenuInact, true);
 
+/* ============================================================ ESCALAFÓN MILITAR */
+// Retratos pre-renderizados (img/escalafon/*.webp): el GM para todos, el de la BU para quienes están en la BU,
+// y uno propio para cada icónico que tenga modelo.
+const RETRATOS_ALIAS = { pluto: 'pluto_p2', ridge: 'ridge_p2' };   // icónicos que usan otra versión del modelo
+const RETRATOS_ICONICOS = ['ki_adi_mundi', 'yarael_poof', 'mace_windu', 'pluto_p2', 'ridge_p2', 'bacara', 'blackout', 'bullseye', 'contrail', 'epsilon', 'etal', 'finn', 'griggs', 'jet', 'keller',
+  'levet', 'mark', 'mustang', 'racetrack', 'rancor_hammer', 'shade', 'sixseed', 'spark', 'stance', 'thruster'];
+const NIVELES_ESCALAFON = [
+  { titulo: 'Mariscales',  rangos: ['MRL'],                         tam: 'xl' },
+  { titulo: 'Comandantes', rangos: ['CMD B', 'CMDM', 'CMD1', 'CMD'], tam: 'l' },
+  { titulo: 'Capitanes',   rangos: ['CPTM', 'CPT1', 'CPT'],          tam: 'l' },
+  { titulo: 'Tenientes',   rangos: ['TTE1', 'TTE2', 'TTE', 'STTE'],  tam: 'm' },
+  { titulo: 'Sargentos',   rangos: ['SGTM', 'SGT1', 'SGT2', 'SGT'],  tam: 'm' },
+  // Élites que no llegan a Sargento (los de Sargento en adelante ya están en su nivel), como en Miembros de la legión
+  { titulo: 'Élites',      filtro: m => esEliteSinSGT(m),            tam: 'm' },
+];
+function retratoDe(m, idsBU) {
+  if (tieneIconico(m)) {
+    let k = m.nombre_iconico.trim().toLowerCase().replace(/\s+/g, '_');
+    k = RETRATOS_ALIAS[k] || k;
+    if (RETRATOS_ICONICOS.includes(k)) return { src: `img/escalafon/${k}.webp`, tipo: 'iconico' };
+  }
+  return idsBU.has(m.id) ? { src: 'img/escalafon/bu.webp', tipo: 'bu' } : { src: 'img/escalafon/gm.webp', tipo: 'gm' };
+}
+
+async function vistaEscalafon(cont) {
+  const hoy = new Date();
+  const anios = [...new Set([hoy.getFullYear() - 1, hoy.getFullYear()])];
+  const [miembros, ...regsPorAnio] = await Promise.all([api.listarMiembros(), ...anios.map(a => api.listarRegistrosAnio(a))]);
+  // BU: quienes figuran en la última planilla de BU cargada (igual que en Inicio)
+  const plantelBU = regsPorAnio.flat().filter(r => r.categoria === 'bu' && r.columna === COL_PLANTEL);
+  const ultimaBU = plantelBU.reduce((u, r) => Math.max(u, r.anio * 100 + r.mes), 0);
+  const idsBU = new Set(plantelBU.filter(r => r.anio * 100 + r.mes === ultimaBU).map(r => r.miembro_id));
+
+  const activos = miembros.filter(m => m.activo);
+  const niveles = NIVELES_ESCALAFON.map(n => {
+    const set = new Set((n.rangos || []).map(normRango));
+    const entra = n.filtro || (m => set.has(normRango(m.grado)));
+    return { ...n, lista: activos.filter(entra).sort(compararRango) };
+  }).filter(n => n.lista.length);
+
+  const tarjeta = (m, tam) => {
+    const r = retratoDe(m, idsBU);
+    return `<article class="esc-card ${tam}" data-mid="${m.id}" data-rango="${esc(normRango(m.grado))}">
+      <div class="esc-retrato ${r.tipo}"><img src="${r.src}" alt="" loading="lazy" decoding="async" width="256" height="256"></div>
+      <div class="esc-info">
+        <span class="esc-grado">${esc(m.grado)}</span>
+        <a class="esc-nombre" href="#/perfil?id=${m.id}" title="${esc(m.nombre)}">${esc(m.nombre)}</a>
+        <div class="esc-tags">
+          ${tieneIconico(m) ? `<span class="esc-tag iconico">${esc(m.nombre_iconico)}</span>` : ''}
+          ${ELITES[m.elite] ? `<span class="esc-tag elite" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : ''}
+          ${idsBU.has(m.id) ? '<span class="esc-tag bu">BU</span>' : ''}
+        </div>
+      </div>
+    </article>`;
+  };
+
+  cont.innerHTML = `
+    <div class="esc-indice">${niveles.map((n, i) => `<a href="#" data-ir="${i}">${esc(n.titulo)} <b>${n.lista.length}</b></a>`).join('')}</div>
+    <div class="esc-niveles">
+      ${niveles.map((n, i) => `
+        <section class="esc-nivel ${n.tam}" id="esc-nivel-${i}">
+          <header class="esc-cab"><h2>${esc(n.titulo)}</h2><span>${n.lista.length}</span></header>
+          <div class="esc-grilla ${n.tam}">${n.lista.map(m => tarjeta(m, n.tam)).join('')}</div>
+        </section>`).join('')}
+    </div>`;
+  $('.esc-indice', cont).onclick = ev => {
+    const a = ev.target.closest('[data-ir]'); if (!a) return;
+    ev.preventDefault();
+    $(`#esc-nivel-${a.dataset.ir}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+}
+
 /* ============================================================ REVISIÓN DE ACTIVIDAD (Suboficiales, Oficiales y Comandantes) */
 // Color de la etiqueta de cada tipo de actividad (los tipos nuevos que no estén acá usan gris)
 const COLOR_TIPO_ACT = {
@@ -3515,3 +3594,78 @@ async function arrancar() {
 }
 
 arrancar();
+
+
+/* ============================================================ MODO ORDEN (Rango Scope) */
+// Con el modo activo se pueden arrastrar nombres (filas o tarjetas con data-mid) para cambiar el orden
+// dentro del mismo rango. El orden se guarda en miembros.orden y lo usan todas las listas.
+const SECCIONES_ORDENABLES = ['escalafon', 'suboficiales', 'elites', 'bu', 'miembros', 'oficiales'];
+try { estado.ordenando = localStorage.getItem('bd21_ordenando') === '1'; } catch { estado.ordenando = false; }
+$('#btn-ordenar').onclick = () => {
+  estado.ordenando = !estado.ordenando;
+  try { localStorage.setItem('bd21_ordenando', estado.ordenando ? '1' : '0'); } catch {}
+  aviso(estado.ordenando ? 'Modo orden activado: arrastrá los nombres (solo dentro del mismo rango).' : 'Modo orden desactivado.');
+  navegar();
+};
+
+// Marca como arrastrables las filas/tarjetas mientras el modo está activo
+new MutationObserver(() => {
+  if (!document.body.classList.contains('ordenando')) return;
+  $$('#contenido [data-mid]:not([draggable])').forEach(el => el.setAttribute('draggable', 'true'));
+}).observe($('#contenido'), { childList: true, subtree: true });
+
+let arrastreOrden = null;
+document.addEventListener('dragstart', ev => {
+  if (!document.body.classList.contains('ordenando')) return;
+  const el = ev.target.closest?.('#contenido [data-mid]'); if (!el) return;
+  arrastreOrden = { el, antes: hermanosOrden(el).map(x => x.dataset.mid).join(',') };
+  el.classList.add('arrastrando');
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.dataTransfer.setData('text/plain', el.dataset.mid);
+  try { ev.dataTransfer.setDragImage(el, 20, 20); } catch {}
+});
+// Los del mismo rango dentro del mismo contenedor, en el orden en que se ven
+const hermanosOrden = el => [...el.parentElement.children].filter(x => x.dataset?.mid && x.dataset.rango === el.dataset.rango);
+document.addEventListener('dragover', ev => {
+  if (!arrastreOrden) return;
+  const dest = ev.target.closest?.('[data-mid]');
+  const el = arrastreOrden.el;
+  if (!dest || dest === el || dest.parentElement !== el.parentElement || dest.dataset.rango !== el.dataset.rango) {
+    if (dest && dest !== el) ev.dataTransfer.dropEffect = 'none';
+    return;
+  }
+  ev.preventDefault(); ev.dataTransfer.dropEffect = 'move';
+  const r = dest.getBoundingClientRect();
+  const horizontal = dest.tagName !== 'TR' && r.width < r.height * 3.5;   // tarjetas en grilla: según X; filas: según Y
+  const despues = horizontal ? ev.clientX > r.left + r.width / 2 : ev.clientY > r.top + r.height / 2;
+  if (despues ? dest.nextElementSibling !== el : dest.previousElementSibling !== el) dest.parentElement.insertBefore(el, despues ? dest.nextElementSibling : dest);
+});
+document.addEventListener('drop', ev => { if (arrastreOrden) ev.preventDefault(); });
+document.addEventListener('dragend', async () => {
+  if (!arrastreOrden) return;
+  const { el, antes } = arrastreOrden; arrastreOrden = null;
+  el.classList.remove('arrastrando');
+  const ids = hermanosOrden(el).map(x => +x.dataset.mid);
+  if (ids.join(',') === antes) return;
+  try { await guardarOrden(ids); aviso('Orden guardado.'); }
+  catch (e) { fallo(e); }
+  navegar();
+});
+
+// Reparte los lugares que ya ocupan esos miembros (dentro de su rango) en el nuevo orden.
+async function guardarOrden(ids) {
+  const todos = await api.listarMiembros();
+  const elegidos = ids.map(id => todos.find(m => m.id === id)).filter(Boolean);
+  const rangos = new Set(elegidos.map(m => normRango(m.grado)));
+  const cambios = [];
+  for (const rg of rangos) {
+    // todo el rango en su orden actual, numerado de 10 en 10
+    const lista = todos.filter(m => normRango(m.grado) === rg).sort(compararRango);
+    const nuevos = elegidos.filter(m => normRango(m.grado) === rg);
+    const set = new Set(nuevos.map(m => m.id));
+    let k = 0;
+    const final = lista.map(m => set.has(m.id) ? nuevos[k++] : m);
+    final.forEach((m, i) => { const o = (i + 1) * 10; if (m.orden !== o) cambios.push({ id: m.id, orden: o }); });
+  }
+  if (cambios.length) await api.ordenarMiembros(cambios);
+}
