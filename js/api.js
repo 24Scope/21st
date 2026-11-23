@@ -52,7 +52,11 @@ function crearApiSupabase() {
     },
 
     async listarPerfiles() { return ok(await sb.from('perfiles').select('*').order('creado_en')); },
-    async cambiarRango(id, rango) { ok(await sb.from('perfiles').update({ rango }).eq('id', id)); },
+    // rango null = automático (según su rango in-game); un número = fijado a mano
+    async cambiarRango(id, rango) {
+      return ok(await sb.from('perfiles').update(rango == null ? { rango: 1, rango_manual: false } : { rango, rango_manual: true }).eq('id', id).select().single());
+    },
+    async borrarCuenta(id) { ok(await sb.rpc('borrar_cuenta', { p_perfil: id })); },
 
     async obtenerAjustes() {
       const filas = ok(await sb.from('ajustes').select('*'));
@@ -251,7 +255,7 @@ function crearApiDemo() {
     const u = db.usuarios.find(u => u.id == sid);
     return u || null;
   }
-  const perfil = u => u && ({ id: u.id, nombre: u.nombre, email: u.email, rango: u.rango, creado_en: u.creado_en, miembro_id: u.miembro_id || null,
+  const perfil = u => u && ({ id: u.id, nombre: u.nombre, email: u.email, rango: u.rango, rango_manual: !!u.rango_manual || u.rango >= 8, creado_en: u.creado_en, miembro_id: u.miembro_id || null,
     estado: u.estado || 'aprobada', decl_grado: u.decl_grado || null, decl_clon: u.decl_clon || null, decl_jedi: u.decl_jedi || null, decl_discord: u.decl_discord || null });
   const puedeEditar = db => { const u = usuarioActual(db); return !!u && (u.rango >= 8 || db.ajustes.modo_abierto === true); };
   const exigirEdicion = db => { if (!puedeEditar(db)) throw new Error('No tenés permiso para hacer esto.'); };
@@ -282,7 +286,15 @@ function crearApiDemo() {
     async listarPerfiles() { return leer().usuarios.map(perfil); },
     async cambiarRango(uid, rango) {
       const db = leer(); exigirAdmin(db);
-      db.usuarios.find(u => u.id == uid).rango = rango; escribir(db);
+      const u = db.usuarios.find(u => u.id == uid), m = db.miembros.find(x => x.id === u.miembro_id);
+      if (rango == null) Object.assign(u, { rango_manual: false, rango: m ? rangoWebDe(m.grado, m.elite) : u.rango });
+      else Object.assign(u, { rango, rango_manual: true });
+      escribir(db); return perfil(u);
+    },
+    async borrarCuenta(uid) {
+      const db = leer(); exigirAdmin(db);
+      if (usuarioActual(db).id == uid) throw new Error('No podés borrar tu propia cuenta.');
+      db.usuarios = db.usuarios.filter(u => u.id != uid); escribir(db);
     },
 
     async obtenerAjustes() { return { ...leer().ajustes }; },

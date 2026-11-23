@@ -3406,20 +3406,26 @@ async function vistaUsuarios(cont) {
         <span><strong>Modo abierto</strong><br><span style="color:var(--texto-2)">Mientras esté activo, cualquier cuenta registrada puede editar tablas, miembros, calendario y reglamento.
         Desactivalo cuando quieras que solo las cuentas con ${esc(nombreRango(RANGO_ADMIN))} editen (el resto queda en solo lectura).</span></span></label>
     </div>
-    <div class="envoltorio-tabla"><table class="datos"><thead><tr><th data-ancho-min="150" data-sin-cortar>Cuenta</th><th>Email</th><th>Rango</th><th>Miembro vinculado</th><th>Registrado</th></tr></thead>
+    <div class="envoltorio-tabla"><table class="datos"><thead><tr><th data-ancho-min="150" data-sin-cortar>Cuenta</th><th>Email</th><th>Rango web</th><th>Rango militar</th><th>Miembro vinculado</th><th>Registrado</th><th></th></tr></thead>
     <tbody id="cuerpo-usuarios"></tbody></table></div>
     <p class="ayuda">Cada cuenta va vinculada a su miembro de la legión (élites y de Sargento para arriba); un miembro solo puede tener una cuenta.
-    El rango de la web de una cuenta vinculada es <strong>automático</strong>: sale de su rango in-game y cambia solo cuando asciende. Lo único que se asigna a mano es ${esc(nombreRango(RANGO_ADMIN))}.
-    Si un miembro pasa a inactivo, su cuenta deja de poder entrar.</p>`;
+    El <strong>rango web</strong> de una cuenta vinculada es automático (sale de su rango militar y cambia solo cuando asciende), salvo que le fijes uno a mano; para volver a lo automático elegí "Automático".
+    El <strong>rango militar</strong> que cambies acá es el de su ficha en la legión. Si un miembro pasa a inactivo, su cuenta deja de poder entrar.
+    Borrar una cuenta no borra al miembro de la legión: queda sin cuenta.</p>`;
 
+  const manual = p => p.rango_manual || p.rango >= RANGO_ADMIN;
   const opciones = p => {
     const m = p.miembro_id && miembros.find(x => x.id === p.miembro_id);
-    if (m) {   // vinculada: automático o Rango Scope
-      const auto = rangoWebDe(m.grado, m.elite);
-      return `<option value="${auto}" ${p.rango < RANGO_ADMIN ? 'selected' : ''}>Automático · ${esc(nombreRango(auto))}</option>`
-        + `<option value="${RANGO_ADMIN}" ${p.rango >= RANGO_ADMIN ? 'selected' : ''}>${esc(nombreRango(RANGO_ADMIN))}</option>`;
-    }
-    return Object.entries(RANGOS).filter(([n]) => +n > 0).map(([n, t]) => `<option value="${n}" ${+n === p.rango ? 'selected' : ''}>${n} · ${esc(t)}</option>`).join('');
+    const fijos = Object.entries(RANGOS).filter(([n]) => +n > 0)
+      .map(([n, t]) => `<option value="${n}" ${(!m || manual(p)) && +n === p.rango ? 'selected' : ''}>${n} · ${esc(t)}${m ? ' (a mano)' : ''}</option>`).join('');
+    if (!m) return fijos;
+    const auto = rangoWebDe(m.grado, m.elite);
+    return `<option value="auto" ${manual(p) ? '' : 'selected'}>Automático · ${esc(nombreRango(auto))}</option>` + fijos;
+  };
+  const opcionesGrado = p => {
+    const m = p.miembro_id && miembros.find(x => x.id === p.miembro_id);
+    if (!m) return '';
+    return [...RANGOS_LEGION].reverse().map(g => `<option ${normRango(g) === normRango(m.grado) ? 'selected' : ''}>${esc(g)}</option>`).join('');
   };
   const opcionesMiembro = p => `<option value="">— Sin vincular —</option>` + vinculables.map(m => {
     const otro = perfiles.find(x => x.id !== p.id && x.miembro_id === m.id);
@@ -3430,9 +3436,11 @@ async function vistaUsuarios(cont) {
     $('#cuerpo-usuarios').innerHTML = perfiles.filter(aprobada).map(p => `<tr>
       <td><strong>${esc(p.nombre)}</strong>${p.id === estado.perfil.id ? ' <span class="etiqueta">vos</span>' : ''}</td>
       <td style="color:var(--texto-2)">${esc(p.email)}</td>
-      <td><select class="entrada" style="height:32px;max-width:200px" data-rango="${p.id}">${opciones(p)}</select></td>
+      <td><select class="entrada" style="height:32px;max-width:220px" data-rango="${p.id}">${opciones(p)}</select></td>
+      <td>${p.miembro_id ? `<select class="entrada" style="height:32px;max-width:110px" data-grado="${p.id}">${opcionesGrado(p)}</select>` : '<span class="tenue">—</span>'}</td>
       <td><select class="entrada" style="height:32px;max-width:240px" data-miembro="${p.id}">${opcionesMiembro(p)}</select></td>
-      <td style="color:var(--texto-2)">${p.creado_en ? new Date(p.creado_en).toLocaleDateString('es-AR') : ''}</td></tr>`).join('');
+      <td style="color:var(--texto-2)">${p.creado_en ? new Date(p.creado_en).toLocaleDateString('es-AR') : ''}</td>
+      <td>${p.id === estado.perfil.id ? '' : `<button class="btn chico peligro" data-borrar-cuenta="${p.id}" title="Borrar la cuenta">Borrar</button>`}</td></tr>`).join('');
   }
 
   $('#cuerpo-usuarios').onchange = async ev => {
@@ -3450,14 +3458,48 @@ async function vistaUsuarios(cont) {
       } catch (e) { fallo(e); pintar(); }
       return;
     }
-    const p = perfiles.find(x => String(x.id) === sel.dataset.rango); const nuevo = +sel.value;
+    if (sel.dataset.grado) {
+      const p = perfiles.find(x => String(x.id) === sel.dataset.grado), m = miembros.find(x => x.id === p.miembro_id);
+      const grado = sel.value;
+      if (!esDeLegion({ grado, elite: m.elite })) { aviso('En la Legión solo hay élites o de Sargento (SGT) para arriba. Para un rango más bajo, primero marcale la élite en Miembros de la legión.', 'error'); pintar(); return; }
+      try {
+        const g = await api.guardarMiembro({ id: m.id, grado, categoria: categoriaDeRango(grado) || m.categoria });
+        Object.assign(m, g || { grado });
+        perfiles = await api.listarPerfiles();   // el rango web automático cambia solo
+        aviso(`${m.nombre}: rango militar ${grado}.`);
+        if (p.id === estado.perfil.id) entrarApp({ ...estado.perfil, ...perfiles.find(x => x.id === p.id) });
+        pintar();
+      } catch (e) { fallo(e); pintar(); }
+      return;
+    }
+    const p = perfiles.find(x => String(x.id) === sel.dataset.rango);
+    const auto = sel.value === 'auto', nuevo = auto ? null : +sel.value;
+    const m = p.miembro_id && miembros.find(x => x.id === p.miembro_id);
+    const final = auto ? rangoWebDe(m.grado, m.elite) : nuevo;
     const admins = perfiles.filter(x => aprobada(x) && x.rango >= RANGO_ADMIN).length;
-    if (p.rango >= RANGO_ADMIN && nuevo < RANGO_ADMIN && admins <= 1) { aviso(`Tiene que quedar al menos una cuenta con ${nombreRango(RANGO_ADMIN)}.`, 'error'); sel.value = p.rango; return; }
-    if (p.id === estado.perfil.id && nuevo < RANGO_ADMIN && !await confirmar('Quitarte el rango', `Vas a dejar de tener ${nombreRango(RANGO_ADMIN)} y perderás acceso a esta sección.`, 'Continuar')) { sel.value = p.rango; return; }
+    if (p.rango >= RANGO_ADMIN && final < RANGO_ADMIN && admins <= 1) { aviso(`Tiene que quedar al menos una cuenta con ${nombreRango(RANGO_ADMIN)}.`, 'error'); pintar(); return; }
+    if (p.id === estado.perfil.id && final < RANGO_ADMIN && !await confirmar('Quitarte el rango', `Vas a dejar de tener ${nombreRango(RANGO_ADMIN)} y perderás acceso a esta sección.`, 'Continuar')) { pintar(); return; }
     try {
-      await api.cambiarRango(p.id, nuevo); p.rango = nuevo; aviso(`${p.nombre}: ${nombreRango(nuevo)}.`);
-      if (p.id === estado.perfil.id) { estado.perfil.rango = nuevo; entrarApp(estado.perfil); }
-    } catch (e) { fallo(e); sel.value = p.rango; }
+      const r = await api.cambiarRango(p.id, nuevo);
+      Object.assign(p, r || { rango: final, rango_manual: !auto });
+      aviso(`${p.nombre}: ${nombreRango(p.rango)}${auto ? ' (automático)' : ' (fijado a mano)'}.`);
+      if (p.id === estado.perfil.id) { estado.perfil.rango = p.rango; entrarApp(estado.perfil); }
+      pintar();
+    } catch (e) { fallo(e); pintar(); }
+  };
+  // Borrar cuentas (aprobadas, rechazadas o que no completaron sus datos)
+  const borrarCuenta = async p => {
+    if (!await confirmar('Borrar cuenta', `¿Borrar la cuenta de ${p.nombre} (${p.email})? No se puede deshacer. `
+      + `El miembro de la legión no se borra (queda sin cuenta), pero sí se borran los temas y comentarios del foro y los avisos de inactividad que cargó esa cuenta.`, 'Borrar')) return;
+    try {
+      await api.borrarCuenta(p.id);
+      perfiles = perfiles.filter(x => x.id !== p.id);
+      aviso(`Cuenta de ${p.nombre} borrada.`); pintar(); actualizarPendientes();
+    } catch (e) { fallo(e); }
+  };
+  $('#cuerpo-usuarios').onclick = ev => {
+    const b = ev.target.closest('[data-borrar-cuenta]'); if (!b) return;
+    borrarCuenta(perfiles.find(x => String(x.id) === b.dataset.borrarCuenta));
   };
   // ---- Cuentas pendientes de aprobación
   const normNombre = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -3523,10 +3565,12 @@ async function vistaUsuarios(cont) {
         : '<p class="vacio-chico">No hay cuentas esperando aprobación.</p>'}
       ${sinDatos.length ? `<details class="pend-rechazadas"><summary>Todavía completando sus datos in-game (${sinDatos.length})</summary>
         ${sinDatos.map(p => `<div class="pend-rech"><span><strong>${esc(p.nombre)}</strong> <small>${esc(p.email)} · ${fecha(p)}</small></span>
-          <button class="btn chico" data-accion-sd="rechazar" data-id="${p.id}">Rechazar</button></div>`).join('')}</details>` : ''}
+          <span><button class="btn chico" data-accion-sd="rechazar" data-id="${p.id}">Rechazar</button>
+          <button class="btn chico peligro" data-borrar-pend="${p.id}">Borrar</button></span></div>`).join('')}</details>` : ''}
       ${rech.length ? `<details class="pend-rechazadas"><summary>Cuentas rechazadas (${rech.length})</summary>
         ${rech.map(p => `<div class="pend-rech"><span><strong>${esc(p.nombre)}</strong> <small>${esc(p.email)} · ${fecha(p)}</small></span>
-          <button class="btn chico" data-reabrir="${p.id}">Volver a pendientes</button></div>`).join('')}</details>` : ''}`;
+          <span><button class="btn chico" data-reabrir="${p.id}">Volver a pendientes</button>
+          <button class="btn chico peligro" data-borrar-pend="${p.id}">Borrar</button></span></div>`).join('')}</details>` : ''}`;
   }
 
   $('#pendientes').onchange = ev => {
@@ -3542,6 +3586,8 @@ async function vistaUsuarios(cont) {
     else if (campo === 'elite') { d.elite = ev.target.value; pintarPendientes(); }
   };
   $('#pendientes').onclick = async ev => {
+    const bp = ev.target.closest('[data-borrar-pend]');
+    if (bp) return borrarCuenta(perfiles.find(x => String(x.id) === bp.dataset.borrarPend));
     const sd = ev.target.closest('[data-accion-sd]');
     if (sd) {
       const p = perfiles.find(x => String(x.id) === sd.dataset.id);
