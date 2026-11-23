@@ -157,7 +157,8 @@ function crearApiSupabase() {
     },
     async registrarActividad(a) {
       return ok(await sb.rpc('registrar_actividad', { p_tipo: a.tipo, p_fecha: a.fecha, p_hora: a.hora || '',
-        p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [], p_especializacion: a.especializacion || null }));
+        p_link: a.link, p_notas: a.notas || '', p_acompanantes: a.acompanantes || [], p_especializacion: a.especializacion || null,
+        p_ayudantes: a.ayudantes || [] }));
     },
     async anularActividad(id) { return ok(await sb.rpc('anular_actividad', { p_id: id })); },
     // ---- Avisos de inactividad
@@ -179,6 +180,12 @@ function crearApiSupabase() {
       return filas[0];
     },
     async borrarRevisionAscenso(id) { ok(await sb.from('ascensos_revisiones').delete().eq('id', id)); },
+    // Suma en la BU las misiones y entrenamientos BU de una revisión verificada (una sola vez) y deja los dudosos para revisar
+    async aplicarBURevision(id, efectos, pendientes) {
+      return ok(await sb.rpc('aplicar_bu_revision', { p_revision: id, p_efectos: efectos, p_pendientes: pendientes }));
+    },
+    async listarPendientesBU() { return ok(await sb.from('bu_pendientes').select('*').eq('estado', 'pendiente').order('creado_en')); },
+    async resolverPendienteBU(id, miembroId) { ok(await sb.rpc('resolver_pendiente_bu', { p_id: id, p_miembro: miembroId || null })); },
     // ---- Reporte de bugs (tablas foro_*): lo leen y escriben todas las cuentas aprobadas
     async listarTemasForo() {
       const filas = ok(await sb.from('foro_temas').select('*, foro_comentarios(count)'));
@@ -419,6 +426,9 @@ function crearApiDemo() {
       escribir(db); return x;
     },
     async borrarRevisionAscenso(rid) { const db = leer(); db.ascensos = (db.ascensos || []).filter(x => x.id !== rid); escribir(db); },
+    async aplicarBURevision() { return 0; },
+    async listarPendientesBU() { return leer().buPendientes || []; },
+    async resolverPendienteBU(pid) { const db = leer(); db.buPendientes = (db.buPendientes || []).filter(x => x.id !== pid); escribir(db); },
     async listarTemasForo() {
       const db = leer();
       return (db.foroTemas || []).map(t => ({ ...t, n_comentarios: (db.foroComentarios || []).filter(c => c.tema_id === t.id).length }));

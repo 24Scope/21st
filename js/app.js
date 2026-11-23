@@ -553,6 +553,7 @@ async function vistaRegistro(cat) {
       <button class="btn chico" id="btn-desbloq-mes">Desbloquear ${textoMes}</button>
       <button class="btn chico" id="btn-csv">Exportar CSV</button>
     </div>
+    ${cat === 'bu' ? '<div id="bu-confusos"></div>' : ''}
     ${config.periodo ? '' : `<div class="meses" id="meses">${MESES.map((m, i) => `<button class="mes" data-mes="${i + 1}">${m}</button>`).join('')}</div>`}
     <div class="barra-formula ${config.periodo ? 'sin-meses' : ''}" id="barra-formula"><div class="ref" id="f-ref">—</div><div class="fx">fx</div><div class="val" id="f-val"></div><div class="estado-guardado" id="f-estado"></div></div>
     <div class="hoja-contenedor" id="hoja-cont" tabindex="0"></div>
@@ -691,6 +692,55 @@ async function vistaRegistro(cat) {
   }
   if ($('#btn-nombres')) $('#btn-nombres').onclick = abrirNombres;
   $('#hoja-cont').addEventListener('click', ev => { if (ev.target.closest('[data-abrir-nombres]')) abrirNombres(); });
+
+  /* ---------- Información confusa por revisar (BU): nombres de Ascensos de tropas que no se pudieron identificar */
+  let confusos = [];
+  const COLS_CONFUSO = { misiones: 'Misión', ent_bu_part: 'Participación en entrenamiento BU' };
+  async function cargarConfusos() {
+    if (cat !== 'bu') return;
+    try { confusos = await api.listarPendientesBU(); } catch { confusos = []; }
+    $('#bu-confusos').innerHTML = confusos.length ? `<button class="tarjeta bu-confusos" id="btn-confusos">
+        <span class="bu-confusos-icono">⚠</span>
+        <span><strong>Información confusa por revisar</strong><br><span class="tenue">${confusos.length} participación${confusos.length === 1 ? '' : 'es'} de Ascensos de tropas que no se pudo asignar con seguridad</span></span>
+        <span class="menu-contador">${confusos.length}</span></button>` : '';
+    if ($('#btn-confusos')) $('#btn-confusos').onclick = abrirConfusos;
+  }
+  function abrirConfusos() {
+    const personas = hoja.personas || [];
+    const porId = new Map(personas.map(p => [p.id, p]));
+    const opcionPersona = p => `<option value="${p.id}">${esc(p.grado || '—')} ${esc(p.nombre)}${p.nombre_iconico && p.nombre_iconico !== 'No' ? ` (${esc(p.nombre_iconico)})` : ''}</option>`;
+    const todos = [...personas].filter(p => p.activo).sort((a, b) => a.nombre.localeCompare(b.nombre));
+    abrirModal('Información confusa por revisar', `<p class="ayuda" style="margin-top:0">Participantes de informes de Ascensos de tropas que parecen ser de la BU pero no se pudieron identificar con seguridad.
+      Elegí a quién corresponde cada uno (suma +1 en ese mes) o descartalo.</p><div id="lista-confusos"></div>`, c => {
+      const pintarLista = () => {
+        $('#lista-confusos', c).innerHTML = confusos.length ? confusos.map(x => `<div class="confuso" data-id="${x.id}">
+          <div class="confuso-cab"><strong>${esc(x.linea || x.nombre)}</strong>
+            <span class="etiqueta">${esc(COLS_CONFUSO[x.columna] || x.columna)} · ${MESES[x.mes - 1]} ${x.anio}</span></div>
+          <div class="tenue" style="font-size:12.5px">${esc(x.informe || 'Informe')}${x.link ? ` · <a href="${esc(x.link)}" target="_blank" rel="noopener">ver informe</a>` : ''}</div>
+          ${editable ? `<div class="confuso-acciones">
+            <select class="entrada">${x.candidatos.length ? `<optgroup label="Posibles">${x.candidatos.map(id => porId.get(id)).filter(Boolean).map(opcionPersona).join('')}</optgroup>` : ''}
+              <optgroup label="Todos">${todos.map(opcionPersona).join('')}</optgroup></select>
+            <button class="btn chico primario" data-asignar>Asignar</button>
+            <button class="btn chico" data-descartar>Descartar</button></div>` : ''}
+        </div>`).join('') : '<p class="vacio-chico">No queda nada por revisar.</p>';
+      };
+      pintarLista();
+      $('#lista-confusos', c).onclick = async ev => {
+        const b = ev.target.closest('[data-asignar], [data-descartar]'); if (!b) return;
+        const caja = b.closest('[data-id]'), x = confusos.find(y => y.id === +caja.dataset.id);
+        const mid = b.matches('[data-asignar]') ? +caja.querySelector('select').value : null;
+        b.disabled = true;
+        try {
+          await api.resolverPendienteBU(x.id, mid);
+          confusos = confusos.filter(y => y.id !== x.id);
+          aviso(mid ? `Se sumó a ${porId.get(mid)?.nombre || 'esa persona'} (${MESES[x.mes - 1]} ${x.anio}).` : 'Descartado.');
+          pintarLista(); cargarConfusos(); cargar();
+        } catch (e) { fallo(e); b.disabled = false; }
+      };
+    });
+  }
+  cargarConfusos();
+  if (cat === 'bu') estado.limpiezas.push(api.suscribir('bu_pendientes', () => cargarConfusos()));
 
   async function cargar() {
     hoja.clave = claveHoja(config, refActual());
@@ -1741,12 +1791,19 @@ async function vistaActividad(cont) {
         </div>
         <label class="campo" id="campo-esp" hidden><span>Especialización de la try <small class="tenue" id="ayuda-esp"></small></span>
           <select name="especializacion"><option value="">— Elegir —</option>${Object.entries(ESPECIALIZACIONES_TRY).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join('')}</select></label>
-        <div class="campo" id="campo-acomp"><span>¿Con quién la hiciste? <small class="tenue" id="limite-acomp">(opcional)</small></span>
+        <div class="campo" id="campo-acomp"><span><span id="titulo-acomp">¿Con quién la hiciste?</span> <small class="tenue" id="limite-acomp">(opcional)</small></span>
           <div class="selector-acomp" id="selector-acomp">
             <div class="chips-acomp" id="chips-acomp"></div>
             <input id="buscar-acomp" placeholder="Escribí un nombre, rango o Discord…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="resultados-acomp">
           </div>
           <div class="resultados-acomp" id="resultados-acomp" role="listbox" hidden></div>
+        </div>
+        <div class="campo" id="campo-ayud" hidden><span>Ayudantes de la try <small class="tenue">(oficiales y suboficiales que ayudaron a organizarla · opcional)</small></span>
+          <div class="selector-acomp" id="selector-ayud">
+            <div class="chips-acomp" id="chips-ayud"></div>
+            <input id="buscar-ayud" list="lista-ayud" placeholder="Escribí un nombre y elegilo de la lista…" autocomplete="off">
+          </div>
+          <datalist id="lista-ayud"></datalist>
         </div>
         <label class="campo"><span>Link del informe en Discord</span>
           <input name="link" type="url" required placeholder="https://discord.com/channels/…" class="mono"></label>
@@ -1758,6 +1815,28 @@ async function vistaActividad(cont) {
 
     const f = $('#form-act');
     const seleccion = [];               // ids de los acompañantes, en el orden en que se eligieron
+    const ayudantes = [];               // Try BU: oficiales y suboficiales que ayudaron
+    const esTryBU = () => f.tipo.value === 'try_bu';
+    const etiquetaAyud = m => `${m.grado} ${m.nombre}`;
+    const candidatosAyud = () => candidatos.filter(m => CATS_FORMULARIO.includes(m.categoria) && !seleccion.includes(m.id) && !ayudantes.includes(m.id));
+    function pintarAyudantes() {
+      $('#chips-ayud').innerHTML = ayudantes.map(id => { const m = porId.get(id);
+        return `<span class="chip-acomp"><strong>${esc(m.grado)}</strong> ${esc(m.nombre)}<button type="button" data-quitar-ayud="${id}" aria-label="Quitar a ${esc(m.nombre)}">×</button></span>`; }).join('');
+      $('#lista-ayud').innerHTML = candidatosAyud().map(m => `<option value="${esc(etiquetaAyud(m))}">`).join('');
+    }
+    // Al elegir de la lista entra solo; con Enter también acepta el nombre sin el rango
+    const agregarAyudante = conEnter => {
+      const txt = $('#buscar-ayud').value.trim().toLowerCase(); if (!txt) return;
+      const m = candidatosAyud().find(x => etiquetaAyud(x).toLowerCase() === txt) || (conEnter ? candidatosAyud().find(x => x.nombre.toLowerCase() === txt) : null);
+      if (!m) return;
+      ayudantes.push(m.id); $('#buscar-ayud').value = ''; pintarAyudantes(); actualizar();
+    };
+    $('#buscar-ayud').oninput = () => agregarAyudante(false);
+    $('#buscar-ayud').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); agregarAyudante(true); } };
+    $('#selector-ayud').onclick = ev => {
+      const q = ev.target.closest('[data-quitar-ayud]');
+      if (q) { ayudantes.splice(ayudantes.indexOf(+q.dataset.quitarAyud), 1); pintarAyudantes(); actualizar(); }
+    };
     let marcado = 0;                    // resultado resaltado con el teclado
     const elegidos = () => [...seleccion];
     // Máximo de participantes contando a quien carga: 2, o 3 en Capacitación élite (donde todos tienen que ser élites)
@@ -1830,6 +1909,11 @@ async function vistaActividad(cont) {
       const max = maxAcomp();
       const tTry = esTry();
       $('#campo-acomp').classList.toggle('deshabilitado', tTry);
+      $('#titulo-acomp').textContent = esTryBU() ? '¿Con quién la organizaste? (co-organizador)'
+        : f.tipo.value === 'ent_bu' ? '¿Con quién lo diste? (co-entrenador)' : '¿Con quién la hiciste?';
+      $('#campo-ayud').hidden = !esTryBU();
+      for (let i = ayudantes.length - 1; i >= 0; i--) if (seleccion.includes(ayudantes[i])) ayudantes.splice(i, 1);
+      pintarAyudantes();
       buscar.disabled = tTry;
       buscar.placeholder = tTry ? 'En las trys no se marca a nadie más' : 'Escribí un nombre, rango o Discord…';
       $('#limite-acomp').textContent = tTry ? '(no disponible en las trys)' : esCapElite()
@@ -1847,9 +1931,11 @@ async function vistaActividad(cont) {
       const t = tipoDe(f.tipo.value);
       if (!t) { $('#vista-previa').innerHTML = ''; return; }
       const [anio, mes] = (f.fecha.value || hoyISO).split('-').map(Number);
-      const lineas = [yo.id, ...ids].map(id => {
-        const m = porId.get(id);
-        const suma = t.efectos.filter(e => (e.rol === 'todos' || (e.rol === 'autor' ? id === yo.id : id !== yo.id)) && registroAplica(e.registro, m))
+      const ayud = esTryBU() ? ayudantes : [];
+      const lineas = [yo.id, ...ids, ...ayud].map(id => {
+        const m = porId.get(id), esAyud = ayud.includes(id);
+        const suma = t.efectos.filter(e => (esAyud ? e.rol === 'ayudante'
+            : e.rol === 'todos' || (e.rol === 'autor' && id === yo.id) || (e.rol === 'acompanante' && id !== yo.id)) && registroAplica(e.registro, m))
           .map(e => `${nombreColumna(e.registro, e.columna)} <span class="tenue">(${esc(CATEGORIAS[e.registro]?.titulo || e.registro)})</span>`);
         return `<li><strong>${esc(m.grado)} ${esc(m.nombre)}</strong>: ${suma.length ? '+1 en ' + suma.join(', ') : '<span class="tenue">no suma en ninguna tabla</span>'}</li>`;
       });
@@ -1874,7 +1960,8 @@ async function vistaActividad(cont) {
       try {
         if (f.tipo.value === 'try_esp' && !f.especializacion.value) { aviso('Elegí de qué especialización fue la try.', 'error'); return; }
         const nueva = await api.registrarActividad({ tipo: f.tipo.value, fecha: f.fecha.value, hora: f.hora.value, link, notas: f.notas.value.trim(),
-          acompanantes: esTry() ? [] : elegidos(), especializacion: f.tipo.value === 'try_esp' ? f.especializacion.value : null });
+          acompanantes: esTry() ? [] : elegidos(), especializacion: f.tipo.value === 'try_esp' ? f.especializacion.value : null,
+          ayudantes: esTryBU() ? [...ayudantes] : [] });
         actividades.unshift(nueva);
         aviso(`Actividad registrada: ${tipoDe(nueva.tipo)?.nombre}. Se sumó a ${nueva.participantes.length} participante${nueva.participantes.length === 1 ? '' : 's'}.`);
         pintarFormulario(); pintarHistorial();
@@ -1893,7 +1980,8 @@ async function vistaActividad(cont) {
       return `<tr class="${a.anulada ? 'fila-inactiva' : ''}">
         <td>${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')}${a.hora ? `<span class="sub">${esc(a.hora)}</span>` : ''}</td>
         <td><strong>${esc(tipoDe(a.tipo)?.nombre || a.tipo)}${a.especializacion ? ` · ${esc(ESPECIALIZACIONES_TRY[a.especializacion] || a.especializacion)}` : ''}</strong>${a.notas ? `<span class="sub" title="${esc(a.notas)}">${esc(a.notas.slice(0, 60))}</span>` : ''}</td>
-        <td style="white-space:normal;min-width:160px">${a.participantes.map(id => `<a class="link-perfil" href="#/perfil?id=${id}">${esc(etiquetaMiembro(id))}</a>`).join(', ')}</td>
+        <td style="white-space:normal;min-width:160px">${a.participantes.map(id => `<a class="link-perfil" href="#/perfil?id=${id}">${esc(etiquetaMiembro(id))}</a>`).join(', ')}${a.ayudantes?.length
+          ? `<div class="tenue" style="font-size:12px">Ayudantes: ${a.ayudantes.map(id => esc(etiquetaMiembro(id))).join(', ')}</div>` : ''}</td>
         <td>${esc(etiquetaMiembro(a.autor_miembro))}<span class="sub">${new Date(a.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</span></td>
         <td><a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Abrir</a></td>
         <td class="acciones">${a.anulada ? '<span class="etiqueta">Anulada</span>' : puedeAnular ? `<button class="btn chico peligro" data-anular="${a.id}">Anular</button>` : ''}</td>
@@ -2887,7 +2975,10 @@ const limpiarNombreAsc = t => String(t || '').replace(/[<>\[\]]/g, ' ').replace(
 //   <SDO2 Taitus> (Lider)    SGT MYR Mordecai    CBO 1° Elen    [CBO1] <Isagi> Sub lider    [SDO] Clover - 2do al mando
 function leerRenglonAscenso(l, rangos) {
   let s = String(l || '').replace(/^[\s•·*>\-–—]+/, '').trim();
-  let rolTxt = [...s.matchAll(/\(([^)]*)\)/g)].map(m => m[1]).join(' ');
+  // Entre paréntesis puede venir el rol (Líder) o el otro nombre con el que estuvo: "Scope (Keller)", "Scope (John Mercer)"
+  const parens = [...s.matchAll(/\(([^)]*)\)/g)].map(m => m[1].trim());
+  let rolTxt = parens.join(' ');
+  const alias = parens.filter(x => x && !rolAscenso(x)).join(' ').trim();
   s = s.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
   let grado = null, nombre = '', m;
   if ((m = /^\[([^\]]+)\]\s*<([^>]+)>(.*)$/.exec(s))) {            // [SGT2] <Khos Varen> rol
@@ -2906,7 +2997,7 @@ function leerRenglonAscenso(l, rangos) {
   }
   nombre = limpiarNombreAsc(nombre);
   if (!grado || !nombre) return null;
-  return { grado, nombre, rol: rolAscenso(rolTxt) };
+  return { grado, nombre, rol: rolAscenso(rolTxt), alias: limpiarNombreAsc(alias) };
 }
 // "Sub-Lider", "Segundo al mando", "2do al mando" → sub · "Lider", "Primero al mando", "1ero al mando" → lider
 const sinTildesAsc = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -3036,6 +3127,79 @@ function posiblesDuplicados(personas, descartados) {
     if (parecido) res.push([personas[i], personas[j]]);
   }
   return res;
+}
+
+/* ---------- Ascensos de tropas → Actividad BU
+   Al verificar una revisión, cada informe de Misión suma +1 en "Misiones" y cada Entrenamiento BU (el título dice BU)
+   suma +1 en "Ent. BU participante" a los participantes que están en la BU (de soldado a mariscal).
+   Los nombres se anotan "NombreClon (icónico o Jedi)": se busca por el nombre clon y el paréntesis desempata.
+   Lo que no se puede identificar con seguridad queda como "información confusa" en Actividad BU. */
+const esTituloBU = t => /\bBU\b|BLACK\s*-?\s*OUT/i.test(letrasPlanasAsc(t));
+// Fecha de un mensaje de Discord a partir de su link (el id del mensaje lleva la fecha adentro)
+function fechaDeLinkDiscord(link) {
+  const m = /\/(\d{15,22})\/?$/.exec(String(link || '').trim());
+  if (!m) return null;
+  try { const d = new Date(Number(BigInt(m[1]) >> 22n) + 1420070400000); return isNaN(d) ? null : d; } catch { return null; }
+}
+const planoNombre = s => normNombreAsc(s).replace(/[^a-z0-9]/g, '');
+// Quién figura en la BU en un mes: su planilla o, si no tiene, la última anterior
+function idsBUDelMes(plantel, anio, mes) {
+  const k = anio * 100 + mes;
+  const ult = plantel.reduce((u, r) => { const x = r.anio * 100 + r.mes; return x <= k && x > u ? x : u; }, 0);
+  return new Set(plantel.filter(r => r.anio * 100 + r.mes === ult).map(r => r.miembro_id));
+}
+// { id } si se identifica a alguien de la BU · { candidatos } si es dudoso · {} si no es de la BU
+function identificarPersonaBU(l, personas, idsBU) {
+  const n = planoNombre(l.nombre), alias = planoNombre(l.alias);
+  if (!n) return {};
+  let exactos = personas.filter(p => planoNombre(p.nombre) === n);
+  if (!exactos.length) exactos = personas.filter(p => planoNombre(p.nombre_iconico) === n || planoNombre(p.nombre_jedi) === n);
+  if (exactos.length > 1 && alias) {
+    const conAlias = exactos.filter(p => planoNombre(p.nombre_iconico) === alias || planoNombre(p.nombre_jedi) === alias);
+    if (conAlias.length) exactos = conAlias;
+  }
+  if (exactos.length > 1) {
+    const mismoRango = exactos.filter(p => normRango(p.grado) === normRango(l.grado));
+    if (mismoRango.length) exactos = mismoRango;
+  }
+  if (exactos.length === 1) return idsBU.has(exactos[0].id) ? { id: exactos[0].id } : {};
+  if (exactos.length > 1) {
+    const enBU = exactos.filter(p => idsBU.has(p.id));
+    return enBU.length === 1 ? { id: enBU[0].id } : enBU.length ? { candidatos: enBU.map(p => p.id) } : {};
+  }
+  // Sin coincidencia exacta: ¿se parece a alguien de la BU? (mal escrito, abreviado)
+  const parecidos = personas.filter(p => idsBU.has(p.id)).filter(p => {
+    const b = planoNombre(p.nombre); if (!b) return false;
+    const corto = n.length <= b.length ? n : b, largo = n.length <= b.length ? b : n;
+    return (corto.length >= 4 && largo.startsWith(corto)) || (Math.min(n.length, b.length) >= 3 && distanciaNombres(n, b) <= (Math.min(n.length, b.length) >= 7 ? 2 : 1));
+  });
+  return parecidos.length ? { candidatos: parecidos.map(p => p.id) } : {};
+}
+// Calcula y guarda lo que una revisión verificada suma en la BU. Devuelve { sumados, dudosos, texto }.
+async function aplicarBUAscenso(rev) {
+  const [personas, plantel] = await Promise.all([api.listarPersonas(), api.listarPlantelBU()]);
+  const efectos = [], pendientes = [];
+  for (const inf of rev.informes || []) {
+    const leido = leerInformeAscenso(inf.texto);
+    const tipo = inf.tipo || leido.tipo;
+    const columna = tipo === 'mision' ? 'misiones'
+      : (tipo === 'ent' || tipo === 'cap') && esTituloBU(`${inf.titulo || ''} ${leido.titulo || ''}`) ? 'ent_bu_part' : null;
+    if (!columna) continue;
+    const fecha = fechaDeLinkDiscord(inf.link) || new Date(rev.creado_en || Date.now());
+    const anio = fecha.getFullYear(), mes = fecha.getMonth() + 1;
+    const idsBU = idsBUDelMes(plantel, anio, mes), usados = new Set();
+    for (const l of leido.lineas) {
+      const r = identificarPersonaBU(l, personas, idsBU);
+      if (r.id) { if (!usados.has(r.id)) { usados.add(r.id); efectos.push({ miembro_id: r.id, anio, mes, columna }); } }
+      else if (r.candidatos) pendientes.push({ informe: inf.titulo || leido.titulo || '', link: inf.link || '', columna, anio, mes,
+        linea: `${l.grado} ${l.nombre}${l.alias ? ` (${l.alias})` : ''}`, nombre: l.nombre, grado: l.grado, alias: l.alias || '', candidatos: r.candidatos });
+    }
+  }
+  const sumados = await api.aplicarBURevision(rev.id, efectos, pendientes);
+  const texto = (sumados || pendientes.length)
+    ? `Actividad BU: se sumaron ${sumados} dato${sumados === 1 ? '' : 's'}` + (pendientes.length ? ` y quedaron ${pendientes.length} para revisar.` : '.')
+    : '';
+  return { sumados, dudosos: pendientes.length, texto };
 }
 
 async function vistaAscensos(cont) {
@@ -3308,10 +3472,17 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
       cont.innerHTML = cab + `<div class="asc-acciones">
           <button class="btn" id="asc-ver-informes">Ver informes originales</button>
           <button class="btn" id="asc-copiar">Copiar como texto</button>
+          ${rev.efectos_bu == null ? '<button class="btn" id="asc-sumar-bu" title="Suma las misiones y entrenamientos BU de esta revisión en Actividad BU">Sumar a Actividad BU</button>' : ''}
           ${esAdmin() ? '<button class="btn" id="asc-desverificar">Volver a sin verificar</button>' : ''}
           ${puedeBorrar ? '<button class="btn peligro" id="asc-borrar">Borrar revisión</button>' : ''}
-        </div><p class="ayuda">Lista para sacarle una captura y mandarla por Discord.</p>`;
+        </div><p class="ayuda">Lista para sacarle una captura y mandarla por Discord.${rev.efectos_bu != null
+          ? ` Ya sumó ${rev.efectos_bu.length} dato${rev.efectos_bu.length === 1 ? '' : 's'} en <a href="#/bu">Actividad BU</a>.` : ''}</p>`;
       eventosComunes();
+      const sb = $('#asc-sumar-bu');
+      if (sb) sb.onclick = async () => {
+        sb.disabled = true;
+        try { const r = await aplicarBUAscenso(rev); aviso(r.texto || 'Listo.'); navegar(); } catch (e) { fallo(e); sb.disabled = false; }
+      };
       $('#asc-captura thead').onclick = ev => { const t = ev.target.closest('[data-orden]'); if (t) { orden = siguienteOrdenAsc(orden, t.dataset.orden); pintar(); } };
       const des = $('#asc-desverificar');
       if (des) des.onclick = async () => {
@@ -3492,7 +3663,10 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
       rev = await api.guardarRevisionAscenso(rev.id, { resultado: personas, ...(verificar ? { estado: 'verificada' } : {}) }, rev.actualizado_en);
       cambios = false; otroGuardo = false;
       aviso(verificar ? 'Revisión verificada. Ya está en el historial de ascensos.' : 'Cambios guardados.');
-      if (verificar) navegar(); else pintar();
+      if (verificar) {
+        try { const r = await aplicarBUAscenso(rev); if (r.texto) aviso(r.texto); } catch (e) { fallo(e); }
+        navegar();
+      } else pintar();
     } catch (e) { fallo(e); }
   }
 
