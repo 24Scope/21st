@@ -271,18 +271,15 @@ function navegar() {
 /* ============================================================ INICIO */
 async function vistaInicio(cont) {
   const hoy = new Date();
-  const anterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);   // último mes cerrado
-  const anios = [...new Set([anterior.getFullYear(), hoy.getFullYear()])];
-  const [miembros, eventos, ...regsPorAnio] = await Promise.all([
+  // Solo lo necesario: personas, eventos próximos y quiénes figuran en las planillas de BU (no todos los registros del año)
+  const [miembros, eventos, plantelBU] = await Promise.all([
     api.listarPersonas(),
     api.listarEventos(fechaISO(hoy), fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30))),
-    ...anios.map(a => api.listarRegistrosAnio(a)),
+    api.listarPlantelBU(),
   ]);
-  const regs = regsPorAnio.flat();
 
   // Cantidad actual de miembros por grupo (Blackout Unit: quienes figuran en la última planilla de BU cargada)
   const actuales = miembros.filter(m => m.activo);
-  const plantelBU = regs.filter(r => r.categoria === 'bu' && r.columna === COL_PLANTEL);
   const ultimaBU = plantelBU.reduce((u, r) => Math.max(u, r.anio * 100 + r.mes), 0);
   const idsBU = new Set(plantelBU.filter(r => r.anio * 100 + r.mes === ultimaBU).map(r => r.miembro_id));
   const grupos = [
