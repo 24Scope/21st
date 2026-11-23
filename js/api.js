@@ -28,6 +28,11 @@ function crearApiSupabase() {
   async function perfilDe(user) {
     if (!user) return null;
     const p = ok(await sb.from('perfiles').select('*').eq('id', user.id).maybeSingle());
+    // Miembro dado de baja (inactivo): no entra al panel, salvo Rango Scope
+    if (p && p.estado === 'aprobada' && p.miembro_id && p.rango < 8) {
+      const { data: baja } = await sb.rpc('cuenta_de_baja');
+      if (baja) p.estado = 'baja';
+    }
     return p || { id: user.id, nombre: user.email, email: user.email, rango: 1, estado: 'pendiente' };
   }
 
@@ -56,6 +61,13 @@ function crearApiSupabase() {
     async guardarAjuste(clave, valor) { ok(await sb.from('ajustes').update({ valor }).eq('clave', clave)); },
 
     async listarMiembros() { return ok(await sb.from('miembros').select('*').order('nombre')); },
+    // Soldados y cabos (no son de la Legión): solo para planillas como Actividad BU y Ascensos de tropas
+    async listarTropas() { return ok(await sb.from('tropas').select('*').order('nombre')); },
+    // Legión + tropas (para planillas e historiales). Comparten numeración de ids.
+    async listarPersonas() {
+      const [m, t] = await Promise.all([sb.from('miembros').select('*').order('nombre'), sb.from('tropas').select('*').order('nombre')]);
+      return [...ok(m), ...ok(t).map(x => ({ ...x, tropa: true }))];
+    },
     // Orden manual dentro de cada rango (solo Rango Scope): [{ id, orden }]
     async ordenarMiembros(lista) { ok(await sb.rpc('ordenar_miembros', { p_orden: lista })); },
     // Modelo del retrato propio: 'iconico' | 'bu' | 'gm' | null (automático)
@@ -188,10 +200,9 @@ function crearApiSupabase() {
       ok(await sb.from('perfiles').update({ miembro_id: miembroId || null }).eq('id', perfilId));
     },
     // ---- Aprobación de cuentas nuevas
-    async aprobarCuenta(perfilId, { miembro_id, rango }) {
-      const { data: s } = await sb.auth.getSession();
-      ok(await sb.from('perfiles').update({ estado: 'aprobada', miembro_id: miembro_id || null, rango,
-        aprobado_por: s.session?.user.id || null, aprobado_en: new Date().toISOString() }).eq('id', perfilId));
+    // Crea el miembro (o pasa la tropa a la Legión), lo vincula y le da su rango, todo en un paso. miembro_id null = nuevo.
+    async aprobarCuenta(perfilId, { miembro_id, grado, elite }) {
+      return ok(await sb.rpc('aprobar_cuenta', { p_perfil: perfilId, p_miembro: miembro_id || null, p_grado: grado, p_elite: elite || '' }));
     },
     async cambiarEstadoCuenta(perfilId, estado) { ok(await sb.from('perfiles').update({ estado }).eq('id', perfilId)); },
     async completarDatosCuenta(d) {
@@ -278,6 +289,8 @@ function crearApiDemo() {
     async guardarAjuste(clave, valor) { const db = leer(); exigirAdmin(db); db.ajustes[clave] = valor; escribir(db); },
 
     async listarMiembros() { return leer().miembros.slice().sort((a, b) => a.nombre.localeCompare(b.nombre)); },
+    async listarTropas() { return (leer().tropas || []).slice().sort((a, b) => a.nombre.localeCompare(b.nombre)); },
+    async listarPersonas() { const db = leer(); return [...db.miembros, ...(db.tropas || []).map(x => ({ ...x, tropa: true }))]; },
     async elegirModelo(modelo) {
       const db = leer(); const m = db.miembros.find(x => x.id === usuarioActual(db).miembro_id);
       if (!m) throw new Error('Tu cuenta no está vinculada a un miembro de la legión.');
@@ -411,10 +424,18 @@ function crearApiDemo() {
       const db = leer(); exigirAdmin(db);
       db.usuarios.find(u => u.id == uid).miembro_id = miembroId || null; escribir(db);
     },
-    async aprobarCuenta(uid, { miembro_id, rango }) {
+    async aprobarCuenta(uid, { miembro_id, grado, elite }) {
       const db = leer(); exigirAdmin(db);
-      if (miembro_id && db.usuarios.some(u => u.id != uid && u.miembro_id == miembro_id)) throw new Error('Ese miembro ya está vinculado a otra cuenta.');
-      Object.assign(db.usuarios.find(u => u.id == uid), { estado: 'aprobada', miembro_id: miembro_id || null, rango }); escribir(db);
+      const u = db.usuarios.find(u => u.id == uid);
+      if (miembro_id && db.usuarios.some(x => x.id != uid && x.miembro_id == miembro_id)) throw new Error('Ese miembro ya está vinculado a otra cuenta.');
+      let m;
+      if (!miembro_id) { m = { id: id(db), nombre: u.decl_clon, nombre_jedi: u.decl_jedi || '', discord_id: u.decl_discord || '', elite: '', activo: true, creado_en: new Date().toISOString() }; db.miembros.push(m); }
+      else if ((db.tropas || []).some(t => t.id == miembro_id)) { m = db.tropas.find(t => t.id == miembro_id); db.tropas = db.tropas.filter(t => t !== m); db.miembros.push(m); }
+      else m = db.miembros.find(x => x.id == miembro_id);
+      Object.assign(m, { grado, categoria: categoriaDeRango(grado) || m.categoria, activo: true, ...(elite ? { elite } : {}) });
+      if (!esDeLegion(m)) throw new Error('Solo se aprueban cuentas de élites o de Sargento para arriba.');
+      Object.assign(u, { estado: 'aprobada', miembro_id: m.id, rango: rangoWebDe(m.grado, m.elite) }); escribir(db);
+      return perfil(u);
     },
     async cambiarEstadoCuenta(uid, estado) {
       const db = leer(); exigirAdmin(db); db.usuarios.find(u => u.id == uid).estado = estado; escribir(db);

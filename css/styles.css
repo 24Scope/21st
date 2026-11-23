@@ -864,3 +864,8 @@ body.ordenando .barra-superior::after { width: 100%; }
 .modelo-op:disabled.activo { cursor: default; }
 .modelo-img { width: 84px; height: 84px; border-radius: 10px; overflow: hidden; background: radial-gradient(circle at 50% 35%, #3a3d5c, #1c1d2e 75%); }
 .modelo-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Aprobación de cuentas: permiso automático */
+.pend-permiso { min-height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px dashed var(--borde); border-radius: 8px; color: var(--texto); font-size: 13.5px; }
+.pend-permiso small { color: var(--texto-2); }
+.pend-permiso.invalido { color: var(--peligro); border-color: var(--peligro); }

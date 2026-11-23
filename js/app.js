@@ -108,10 +108,13 @@ function mostrarEspera(perfil) {
   $('#app').hidden = true;
   $('#pantalla-acceso').hidden = true;
   $('#pantalla-espera').hidden = false;
-  const rechazada = perfil.estado === 'rechazada', datos = perfil.estado === 'datos' || corrigiendoDatos;
-  $('#espera-icono').textContent = rechazada ? '✕' : datos ? '✎' : '⏳';
-  $('#espera-titulo').textContent = rechazada ? 'Cuenta no aprobada' : datos ? 'Completá tus datos de la legión' : 'Cuenta pendiente de aprobación';
-  $('#espera-texto').textContent = rechazada
+  const baja = perfil.estado === 'baja';
+  const rechazada = perfil.estado === 'rechazada', datos = !baja && (perfil.estado === 'datos' || corrigiendoDatos);
+  $('#espera-icono').textContent = rechazada || baja ? '✕' : datos ? '✎' : '⏳';
+  $('#espera-titulo').textContent = baja ? 'Cuenta dada de baja' : rechazada ? 'Cuenta no aprobada' : datos ? 'Completá tus datos de la legión' : 'Cuenta pendiente de aprobación';
+  $('#espera-texto').textContent = baja
+    ? 'Tu miembro figura como inactivo en la legión, así que la cuenta no puede entrar al panel. Si volviste, pedile a un comandante que te reactive.'
+    : rechazada
     ? 'Un administrador no aprobó esta cuenta. Si creés que es un error, hablá con un administrador de la legión.'
     : datos ? 'Antes de pedir acceso al panel, declará tus datos in-game. Con esto un administrador te identifica y aprueba tu cuenta.'
     : 'Tus datos se enviaron. Un administrador tiene que aprobar tu cuenta y vincularla con tu nombre en la legión antes de que puedas entrar al panel. Esta pantalla se actualiza sola cuando te aprueben.';
@@ -271,7 +274,7 @@ async function vistaInicio(cont) {
   const anterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);   // último mes cerrado
   const anios = [...new Set([anterior.getFullYear(), hoy.getFullYear()])];
   const [miembros, eventos, ...regsPorAnio] = await Promise.all([
-    api.listarMiembros(),
+    api.listarPersonas(),
     api.listarEventos(fechaISO(hoy), fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30))),
     ...anios.map(a => api.listarRegistrosAnio(a)),
   ]);
@@ -598,7 +601,7 @@ async function vistaRegistro(cat) {
     const k = hoja.clave;
     const rango = config.periodo ? [k.periodo, sumarDias(k.periodo, config.periodo.dias - 1)]
                                  : [`${k.anio}-${pad(k.mes)}-01`, fechaISO(new Date(k.anio, k.mes, 0))];
-    const [miembros, regs, avisos] = await Promise.all([api.listarMiembros(), api.listarRegistros(cat, k),
+    const [miembros, regs, avisos] = await Promise.all([api.listarPersonas(), api.listarRegistros(cat, k),
       api.listarInactividadesEntre(...rango).catch(() => [])]);
     if (JSON.stringify(k) !== JSON.stringify(hoja.clave)) return;   // se cambió de hoja mientras cargaba
     hoja.inact = new Map();
@@ -1084,6 +1087,17 @@ const ordenarMiembros = lista => lista.sort((a, b) =>
 // En Miembros de la legión solo figuran de Sargento en adelante, más los élites de cualquier rango
 const RANGO_MIN_MIEMBROS = 'SGT';
 const esDeLegion = m => indiceRango(m.grado) >= indiceRango(RANGO_MIN_MIEMBROS) || !!ELITES[m.elite];
+// Rango de la web que corresponde según el rango in-game y la élite (la base de datos lo aplica sola; Rango Scope es aparte)
+const rangoWebDe = (grado, elite) => {
+  const g = normRango(grado), cat = categoriaDeRango(grado);
+  if (g === 'MRL') return 7;
+  if (cat === 'comandantes') return 6;
+  if (/^CPT/.test(g)) return 5;
+  if (cat === 'oficiales') return 4;
+  if (cat === 'suboficiales') return 3;
+  if (ELITES[elite]) return 2;
+  return 1;
+};
 // Los élites que no llegan a Sargento se agrupan en "Élites" y no se muestra su rango
 const esEliteSinSGT = m => indiceRango(m.grado) < indiceRango(RANGO_MIN_MIEMBROS) && !!ELITES[m.elite];
 const catVista = m => esEliteSinSGT(m) ? 'elites' : m.categoria;
@@ -1804,7 +1818,7 @@ async function vistaPerfil(cont) {
     return;
   }
   const [miembros, registros, actividades, tipos, perfiles, idsBU] = await Promise.all([
-    api.listarMiembros(), api.listarRegistrosMiembro(miembroId), api.listarActividadesMiembro(miembroId),
+    api.listarPersonas(), api.listarRegistrosMiembro(miembroId), api.listarActividadesMiembro(miembroId),
     api.listarTiposActividad(), esAdmin() ? api.listarPerfiles() : Promise.resolve([]), idsBUActual(),
   ]);
   const porId = new Map(miembros.map(m => [m.id, m]));
@@ -2908,7 +2922,7 @@ function posiblesDuplicados(personas, descartados) {
 
 async function vistaAscensos(cont) {
   const idRev = +(estado.params?.get('id') || 0);
-  const [miembros, perfiles] = await Promise.all([api.listarMiembros().catch(() => []), api.listarPerfiles().catch(() => [])]);
+  const [miembros, perfiles] = await Promise.all([api.listarPersonas().catch(() => []), api.listarPerfiles().catch(() => [])]);
   const porNombre = new Map(miembros.map(m => [normNombreAsc(m.nombre), m]));
   const autor = uid => {
     const p = perfiles.find(x => x.id === uid); if (!p) return '—';
@@ -3376,10 +3390,13 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
 /* ============================================================ USUARIOS */
 async function vistaUsuarios(cont) {
   if (!esAdmin()) { cont.innerHTML = '<div class="vacio">Solo los administradores pueden ver esta sección.</div>'; return; }
-  let [perfiles, miembros] = await Promise.all([api.listarPerfiles(), api.listarMiembros()]);
+  let [perfiles, miembros, tropas] = await Promise.all([api.listarPerfiles(), api.listarMiembros(), api.listarTropas().catch(() => [])]);
   estado.ajustes = await api.obtenerAjustes();
-  const vinculables = ordenarMiembros(miembros.filter(m => m.activo && CATS_FORMULARIO.includes(m.categoria)));
+  const vinculables = ordenarMiembros(miembros.filter(m => m.activo));
   const activos = ordenarMiembros(miembros.filter(m => m.activo));
+  // Para aprobar: la Legión y también las tropas (si una tropa llegó a élite o a Sargento, pasa a la Legión al aprobarla)
+  const tropasActivas = ordenarMiembros(tropas.filter(t => t.activo)).map(t => ({ ...t, tropa: true }));
+  const candidatos = [...activos, ...tropasActivas];
   const aprobada = p => !p.estado || p.estado === 'aprobada';
 
   cont.innerHTML = `
@@ -3391,10 +3408,19 @@ async function vistaUsuarios(cont) {
     </div>
     <div class="envoltorio-tabla"><table class="datos"><thead><tr><th data-ancho-min="150" data-sin-cortar>Cuenta</th><th>Email</th><th>Rango</th><th>Miembro vinculado</th><th>Registrado</th></tr></thead>
     <tbody id="cuerpo-usuarios"></tbody></table></div>
-    <p class="ayuda">Vinculá cada cuenta con su miembro de la legión para que pueda cargar actividades en <a href="#/actividad">Registrar actividad</a>. Un miembro solo puede estar vinculado a una cuenta.
-    Los rangos nuevos se agregan en <code>js/config.js</code> (RANGOS).</p>`;
+    <p class="ayuda">Cada cuenta va vinculada a su miembro de la legión (élites y de Sargento para arriba); un miembro solo puede tener una cuenta.
+    El rango de la web de una cuenta vinculada es <strong>automático</strong>: sale de su rango in-game y cambia solo cuando asciende. Lo único que se asigna a mano es ${esc(nombreRango(RANGO_ADMIN))}.
+    Si un miembro pasa a inactivo, su cuenta deja de poder entrar.</p>`;
 
-  const opciones = r => Object.entries(RANGOS).filter(([n]) => +n > 0).map(([n, t]) => `<option value="${n}" ${+n === r ? 'selected' : ''}>${n} · ${esc(t)}</option>`).join('');
+  const opciones = p => {
+    const m = p.miembro_id && miembros.find(x => x.id === p.miembro_id);
+    if (m) {   // vinculada: automático o Rango Scope
+      const auto = rangoWebDe(m.grado, m.elite);
+      return `<option value="${auto}" ${p.rango < RANGO_ADMIN ? 'selected' : ''}>Automático · ${esc(nombreRango(auto))}</option>`
+        + `<option value="${RANGO_ADMIN}" ${p.rango >= RANGO_ADMIN ? 'selected' : ''}>${esc(nombreRango(RANGO_ADMIN))}</option>`;
+    }
+    return Object.entries(RANGOS).filter(([n]) => +n > 0).map(([n, t]) => `<option value="${n}" ${+n === p.rango ? 'selected' : ''}>${n} · ${esc(t)}</option>`).join('');
+  };
   const opcionesMiembro = p => `<option value="">— Sin vincular —</option>` + vinculables.map(m => {
     const otro = perfiles.find(x => x.id !== p.id && x.miembro_id === m.id);
     return `<option value="${m.id}" ${p.miembro_id === m.id ? 'selected' : ''} ${otro ? 'disabled' : ''}>${esc(m.grado)} ${esc(m.nombre)}${otro ? ` — cuenta ${esc(otro.nombre)}` : ''}</option>`;
@@ -3404,7 +3430,7 @@ async function vistaUsuarios(cont) {
     $('#cuerpo-usuarios').innerHTML = perfiles.filter(aprobada).map(p => `<tr>
       <td><strong>${esc(p.nombre)}</strong>${p.id === estado.perfil.id ? ' <span class="etiqueta">vos</span>' : ''}</td>
       <td style="color:var(--texto-2)">${esc(p.email)}</td>
-      <td><select class="entrada" style="height:32px;max-width:200px" data-rango="${p.id}">${opciones(p.rango)}</select></td>
+      <td><select class="entrada" style="height:32px;max-width:200px" data-rango="${p.id}">${opciones(p)}</select></td>
       <td><select class="entrada" style="height:32px;max-width:240px" data-miembro="${p.id}">${opcionesMiembro(p)}</select></td>
       <td style="color:var(--texto-2)">${p.creado_en ? new Date(p.creado_en).toLocaleDateString('es-AR') : ''}</td></tr>`).join('');
   }
@@ -3416,6 +3442,8 @@ async function vistaUsuarios(cont) {
       const nuevo = sel.value ? +sel.value : null;
       try {
         await api.vincularMiembro(p.id, nuevo); p.miembro_id = nuevo;
+        const mv = miembros.find(m => m.id === nuevo);
+        if (mv && p.rango < RANGO_ADMIN) p.rango = rangoWebDe(mv.grado, mv.elite);   // la base lo pone sola
         if (p.id === estado.perfil.id) estado.perfil.miembro_id = nuevo;
         aviso(nuevo ? `${p.nombre} quedó vinculada a ${miembros.find(m => m.id === nuevo)?.nombre}.` : `${p.nombre} quedó sin vincular.`);
         pintar();
@@ -3434,7 +3462,7 @@ async function vistaUsuarios(cont) {
   // ---- Cuentas pendientes de aprobación
   const normNombre = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const sugerido = p => {
-    const libres = activos.filter(m => !perfiles.some(x => x.id !== p.id && x.miembro_id === m.id && aprobada(x)));
+    const libres = candidatos.filter(m => !perfiles.some(x => x.id !== p.id && x.miembro_id === m.id && aprobada(x)));
     if (p.decl_discord) { const dn = s => String(s || '').trim().replace(/^@+/, '').toLowerCase(); const m = libres.find(m => dn(m.discord_id) && dn(m.discord_id) === dn(p.decl_discord)); if (m) return m; }
     for (const nombre of [p.decl_clon, p.nombre]) {
       const n = normNombre(nombre); if (!n) continue;
@@ -3445,22 +3473,13 @@ async function vistaUsuarios(cont) {
     return null;
   };
   // Rango de la web que corresponde según el rango y la élite en la legión (se puede cambiar antes de aprobar)
-  const rangoWebSugerido = (grado, elite) => {
-    const g = normRango(grado), cat = categoriaDeRango(grado);
-    if (g === 'MRL') return 7;
-    if (cat === 'comandantes') return 6;
-    if (/^CPT/.test(g)) return 5;
-    if (cat === 'oficiales') return 4;
-    if (cat === 'suboficiales') return 3;
-    if (elite) return 2;
-    return 1;
-  };
-  const elegidos = new Map();   // perfilId -> { miembro ('' | id | 'nuevo'), grado, rango }
+  const elegidos = new Map();   // perfilId -> { miembro ('' | id | 'nuevo'), grado, elite }
+  // Rango en la legión que se propone: el del miembro; si es una tropa o nuevo, el que declaró (porque ascendió)
+  const gradoPropuesto = (p, m) => (m && !m.tropa) ? m.grado : (RANGOS_LEGION.includes(p.decl_grado) ? p.decl_grado : (m?.grado || ''));
   function datosDe(p) {
     if (!elegidos.has(p.id)) {
       const m = sugerido(p);
-      const grado = m?.grado || (RANGOS_LEGION.includes(p.decl_grado) ? p.decl_grado : '');
-      elegidos.set(p.id, { miembro: m ? m.id : (p.decl_clon ? 'nuevo' : ''), grado, rango: rangoWebSugerido(grado, m?.elite) });
+      elegidos.set(p.id, { miembro: m ? m.id : (p.decl_clon ? 'nuevo' : ''), grado: gradoPropuesto(p, m), elite: m?.elite || '' });
     }
     return elegidos.get(p.id);
   }
@@ -3472,19 +3491,25 @@ async function vistaUsuarios(cont) {
     const tarjeta = p => {
       const d = datosDe(p);
       const optsM = `<option value="">— Elegí su nombre en la legión —</option>`
-        + (p.decl_clon ? `<option value="nuevo" ${d.miembro === 'nuevo' ? 'selected' : ''}>➕ Agregar como miembro nuevo: ${esc(p.decl_clon)}</option>` : '') + activos.map(m => {
+        + (p.decl_clon ? `<option value="nuevo" ${d.miembro === 'nuevo' ? 'selected' : ''}>➕ Agregar como miembro nuevo: ${esc(p.decl_clon)}</option>` : '');
+      const opcion = m => {
         const otro = perfiles.find(x => x.id !== p.id && x.miembro_id === m.id && aprobada(x));
         return `<option value="${m.id}" ${+d.miembro === m.id ? 'selected' : ''} ${otro ? 'disabled' : ''}>${esc(m.grado)} ${esc(m.nombre)}${m.elite ? ` (${esc(m.elite)})` : ''}${otro ? ` — ya es de ${esc(otro.nombre)}` : ''}</option>`;
-      }).join('');
+      };
+      const optsTodos = optsM + `<optgroup label="Legión">${activos.map(opcion).join('')}</optgroup>`
+        + (tropasActivas.length ? `<optgroup label="Tropas (pasa a la Legión al aprobar)">${tropasActivas.map(opcion).join('')}</optgroup>` : '');
+      const optsE = `<option value="">No</option>` + Object.entries(ELITES).map(([k, t]) => `<option value="${k}" ${d.elite === k ? 'selected' : ''}>${esc(t)}</option>`).join('');
+      const permiso = d.grado ? nombreRango(rangoWebDe(d.grado, d.elite)) : '—';
+      const valido = !d.grado || esDeLegion({ grado: d.grado, elite: d.elite });
       const optsG = `<option value="">—</option>` + [...RANGOS_LEGION].reverse().map(g => `<option ${g === d.grado ? 'selected' : ''}>${esc(g)}</option>`).join('');
-      const optsR = Object.entries(RANGOS).filter(([n]) => +n > 0).map(([n, t]) => `<option value="${n}" ${+n === +d.rango ? 'selected' : ''}>${esc(t)}</option>`).join('');
       return `<div class="pendiente" data-pend="${p.id}">
         <div class="pend-quien"><span class="avatar chico">${esc((p.nombre || '?').trim().charAt(0).toUpperCase())}</span>
           <div><strong>${esc(p.nombre)}</strong><small>${esc(p.email)} · se registró el ${fecha(p)}</small>
           ${p.decl_clon ? `<small class="decl">Declaró: <b>${esc(p.decl_grado)}</b> · clon <b>${esc(p.decl_clon)}</b>${p.decl_jedi ? ` · Jedi <b>${esc(p.decl_jedi)}</b>` : ''} · Discord <b class="mono">${esc(p.decl_discord)}</b></small>` : ''}</div></div>
-        <label class="campo"><span>Nombre en la legión</span><select class="entrada" data-campo="miembro">${optsM}</select></label>
+        <label class="campo"><span>Nombre en la legión</span><select class="entrada" data-campo="miembro">${optsTodos}</select></label>
         <label class="campo"><span>Rango en la legión</span><select class="entrada" data-campo="grado" ${d.miembro ? '' : 'disabled'}>${optsG}</select></label>
-        <label class="campo"><span>Permiso en el panel</span><select class="entrada" data-campo="rango">${optsR}</select></label>
+        <label class="campo"><span>Élite</span><select class="entrada" data-campo="elite" ${d.miembro ? '' : 'disabled'}>${optsE}</select></label>
+        <div class="campo"><span>Permiso en el panel</span><div class="pend-permiso ${valido ? '' : 'invalido'}">${valido ? `${esc(permiso)} <small>(automático)</small>` : 'Solo élites o de SGT para arriba'}</div></div>
         <div class="pend-acciones">
           <button class="btn primario" data-accion="aprobar">Aprobar</button>
           <button class="btn" data-accion="rechazar">Rechazar</button>
@@ -3510,12 +3535,11 @@ async function vistaUsuarios(cont) {
     if (campo === 'miembro') {
       const v = ev.target.value;
       d.miembro = v === 'nuevo' ? 'nuevo' : v ? +v : '';
-      const m = miembros.find(m => m.id === d.miembro);
-      d.grado = m?.grado || (RANGOS_LEGION.includes(p.decl_grado) ? p.decl_grado : '');
-      d.rango = rangoWebSugerido(d.grado, m?.elite);
+      const m = candidatos.find(m => m.id === d.miembro);
+      d.grado = gradoPropuesto(p, m); d.elite = m?.elite || '';
       pintarPendientes();
-    } else if (campo === 'grado') { d.grado = ev.target.value; d.rango = rangoWebSugerido(d.grado, miembros.find(m => m.id === d.miembro)?.elite); pintarPendientes(); }
-    else if (campo === 'rango') d.rango = +ev.target.value;
+    } else if (campo === 'grado') { d.grado = ev.target.value; pintarPendientes(); }
+    else if (campo === 'elite') { d.elite = ev.target.value; pintarPendientes(); }
   };
   $('#pendientes').onclick = async ev => {
     const sd = ev.target.closest('[data-accion-sd]');
@@ -3541,35 +3565,25 @@ async function vistaUsuarios(cont) {
       return;
     }
     const esNuevo = d.miembro === 'nuevo';
-    let m = esNuevo ? null : miembros.find(x => x.id === d.miembro);
+    const m = esNuevo ? null : candidatos.find(x => x.id === d.miembro);
     if (!esNuevo && !m) return aviso('Elegí a qué miembro de la legión corresponde la cuenta.', 'error');
     if (!d.grado) return aviso('Elegí el rango en la legión.', 'error');
-    const cambiaGrado = !esNuevo && normRango(d.grado) !== normRango(m.grado);
+    if (!esDeLegion({ grado: d.grado, elite: d.elite || m?.elite })) return aviso('Solo se aprueban cuentas de élites o de Sargento (SGT) para arriba.', 'error');
+    const permiso = nombreRango(rangoWebDe(d.grado, d.elite || m?.elite));
+    const cambiaGrado = m && normRango(d.grado) !== normRango(m.grado);
     const texto = esNuevo
-      ? `Se agrega a ${d.grado} ${p.decl_clon} como miembro nuevo de la legión y ${p.nombre} va a poder entrar al panel como ${nombreRango(d.rango)}.`
-      : `${p.nombre} va a poder entrar al panel como ${nombreRango(d.rango)}, vinculada a ${d.grado} ${m.nombre}.`
-        + (cambiaGrado ? ` El rango de ${m.nombre} en la legión cambia de ${m.grado || '—'} a ${d.grado}.` : '');
+      ? `Se agrega a ${d.grado} ${p.decl_clon} como miembro nuevo de la legión y ${p.nombre} va a poder entrar al panel como ${permiso}.`
+      : `${p.nombre} va a poder entrar al panel como ${permiso}, vinculada a ${d.grado} ${m.nombre}.`
+        + (m.tropa ? ` ${m.nombre} pasa de tropas a la Legión, con todo su historial.` : '')
+        + (cambiaGrado ? ` Su rango en la legión cambia de ${m.grado || '—'} a ${d.grado}.` : '');
     if (!await confirmar('Aprobar cuenta', texto, 'Aprobar')) return;
     b.disabled = true;
     try {
-      const cat = categoriaDeRango(d.grado);
-      if (esNuevo) {
-        m = await api.guardarMiembro({ nombre: p.decl_clon, grado: d.grado, categoria: cat || 'soldados', nombre_jedi: p.decl_jedi || '',
-          discord_id: p.decl_discord || '', activo: true });
-        miembros.push(m); activos.push(m);
-      } else {
-        // Completa los datos que el miembro no tenía con lo que declaró
-        const extra = {};
-        if (!m.discord_id && p.decl_discord) extra.discord_id = p.decl_discord;
-        if (!m.nombre_jedi && p.decl_jedi) extra.nombre_jedi = p.decl_jedi;
-        if (cambiaGrado) { extra.grado = d.grado; if (cat) extra.categoria = cat; }
-        if (Object.keys(extra).length) Object.assign(m, (await api.guardarMiembro({ id: m.id, ...extra })) || extra);
-      }
-      await api.aprobarCuenta(p.id, { miembro_id: m.id, rango: d.rango });
-      Object.assign(p, { estado: 'aprobada', miembro_id: m.id, rango: d.rango });
+      const r = await api.aprobarCuenta(p.id, { miembro_id: esNuevo ? null : m.id, grado: d.grado, elite: d.elite });
       elegidos.delete(p.id);
-      aviso(`Cuenta de ${p.nombre} aprobada y vinculada a ${d.grado} ${m.nombre}.`);
-      pintar(); actualizarPendientes();
+      aviso(`Cuenta de ${p.nombre} aprobada y vinculada a ${d.grado} ${esNuevo ? p.decl_clon : m.nombre}.`);
+      if (r) Object.assign(p, r);
+      actualizarPendientes(); navegar();
     } catch (e) { fallo(e); b.disabled = false; }
   };
   // Si alguien se registra mientras está abierta la sección, aparece sola
