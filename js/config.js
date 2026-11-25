@@ -205,7 +205,7 @@ const TIPOS_EVENTO = [
   { nombre: 'Capacitación élite', color: '#38bdf8', texto: '#0c1a26', especialidad: true },   // celeste
   { nombre: 'Try de subdivisión', color: '#c026d3' },                       // púrpura
   { nombre: 'Reunión',            color: '#ef4444' },                       // rojo
-  { nombre: 'Misión',             color: '#16a34a' },                       // verde
+  { nombre: 'Misión',             color: '#facc15', texto: '#1c1917' },     // amarillo
 ];
 /* Especialidades de la Capacitación élite */
 const ESPECIALIDADES_CAP = { asalto: 'Asalto', apoyo: 'Apoyo', recon: 'Recon' };
