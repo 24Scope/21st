@@ -60,6 +60,16 @@ function finEv(e) {
   return d;
 }
 const terminoEv = e => finEv(e) < new Date();
+// Rango [inicio, fin) de una actividad; si no tiene hora de fin se toma como de 2 horas (igual que la base)
+function rangoEv(fecha, hora, horaFin) {
+  if (!/^\d{1,2}:\d{2}/.test(hora || '')) return null;
+  const ini = new Date(`${fecha}T${hora.slice(0, 5).padStart(5, '0')}`);
+  let fin;
+  if (/^\d{1,2}:\d{2}$/.test(horaFin || '')) { fin = new Date(`${fecha}T${horaFin.padStart(5, '0')}`); if (fin <= ini) fin.setDate(fin.getDate() + 1); }
+  else fin = new Date(ini.getTime() + 2 * 3600e3);
+  return [ini, fin];
+}
+const MAX_HORAS_EVENTO = 2;
 const horarioEv = e => e.hora ? e.hora + (e.hora_fin ? ' a ' + e.hora_fin : '') : '';
 const textoTipo = t => TIPOS_EVENTO.find(x => x.nombre === t)?.texto || '#fff';
 // Nombre del tipo con la especialidad entre paréntesis, ej.: "Capacitación élite (Asalto)"
@@ -1628,17 +1638,18 @@ async function vistaCalendario(cont) {
     const hoy = fechaISO(new Date());
     $('#cal').innerHTML = DIAS.map(d => `<div class="cal-dia-nombre">${d}</div>`).join('') + dias.map(d => {
       const iso = fechaISO(d);
-      const evs = eventos.filter(e => e.fecha === iso);
-      // Las semanas que ya pasaron enteras se achican: dejan más lugar a lo que viene
-      const semanaPasada = fechaISO(dias[Math.floor(dias.indexOf(d) / 7) * 7 + 6]) < hoy;
-      return `<div class="cal-dia puede ${semanaPasada ? 'semana-pasada' : ''} ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso < hoy ? 'pasado' : ''} ${iso === diaSel ? 'elegido' : ''}" data-fecha="${iso}">
+      const evs = eventos.filter(e => e.fecha === iso).sort((a, b) => (a.hora || '99').localeCompare(b.hora || '99'));
+      // Todos los días miden lo mismo: entran 2 actividades y, si hay más, "+N más" (se ven todas en el panel de la derecha)
+      const visibles = evs.length > 2 ? evs.slice(0, 1) : evs;
+      const pasado = iso < hoy;
+      return `<div class="cal-dia ${pasado ? 'pasado' : 'puede'} ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso === diaSel ? 'elegido' : ''}" data-fecha="${iso}">
         <span class="cal-num">${d.getDate()}</span>
-        ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)};color:${textoTipo(e.tipo)}" data-evento="${e.id}"
-            title="${esc((e.hora ? horarioEv(e) + ' · ' : '') + e.titulo + '\n' + nombreTipoEv(e) + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
-            <span class="cal-ev-titulo">${e.hora ? `<span class="cal-ev-hora">${esc(horarioEv(e))}</span> ` : ''}“${esc(e.titulo)}”</span>
-            ${e.especialidad && ESPECIALIDADES_CAP[e.especialidad] ? `<span class="cal-ev-esp">${esc(ESPECIALIDADES_CAP[e.especialidad])}</span>` : ''}
-            ${e.descripcion ? `<span class="cal-ev-desc">${esc(resumirDesc(e.descripcion))}</span>` : ''}
+        ${visibles.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)};color:${textoTipo(e.tipo)}" data-evento="${e.id}"
+            title="${esc(nombreTipoEv(e) + (e.hora ? ' · ' + horarioEv(e) : '') + '\n' + e.titulo + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
+            <span class="cal-ev-linea"><span class="cal-ev-tipo">${esc(TIPOS_EVENTO.find(t => t.nombre === e.tipo)?.corto || e.tipo || 'Actividad')}</span>${e.hora ? `<span class="cal-ev-hora">${esc(e.hora)}${e.hora_fin ? '–' + esc(e.hora_fin) : ''}</span>` : ''}</span>
+            <span class="cal-ev-titulo">${esc(e.titulo)}</span>
             ${(e.organizadores || []).length ? `<span class="cal-ev-org">${esc(e.organizadores.map(id => porIdCal.get(id)?.nombre || '¿?').join(', '))}</span>` : ''}</button>`).join('')}
+        ${evs.length > visibles.length ? `<span class="cal-mas">+${evs.length - visibles.length} actividades más</span>` : ''}
       </div>`;
     }).join('');
     pintarPanel();
@@ -1691,6 +1702,7 @@ async function vistaCalendario(cont) {
           <label class="campo"><span>Hora de inicio</span><input name="hora" type="time" ${e.id ? "" : "required"} value="${esc(e.hora)}"></label>
           <label class="campo"><span>Hora de finalización</span><input name="hora_fin" type="time" ${e.id ? "" : "required"} value="${esc(e.hora_fin || '')}"></label>
         </div>
+        <p class="ayuda" id="horarios-ocupados" style="margin:-6px 0 12px"></p>
         <div class="fila-campos">
           <label class="campo"><span>Tipo</span><select name="tipo">${opciones}</select></label>
           <label class="campo" id="campo-especialidad"><span>Especialidad <small class="tenue">(opcional)</small></span><select name="especialidad">
@@ -1754,12 +1766,23 @@ async function vistaCalendario(cont) {
       const fe = $('#form-evento', c);
       const verEsp = () => { $('#campo-especialidad', c).hidden = !TIPOS_EVENTO.find(t => t.nombre === fe.tipo.value)?.especialidad; };
       fe.tipo.onchange = verEsp; verEsp();
+      // Máximo 2 horas y los horarios que ya reclamaron otras actividades ese día
+      const verOcupados = () => {
+        const otros = eventos.filter(o => o.id !== e.id && o.fecha === fe.fecha.value && o.hora).sort((x, y) => x.hora.localeCompare(y.hora));
+        $('#horarios-ocupados', c).innerHTML = `Máximo ${MAX_HORAS_EVENTO} horas.` + (otros.length
+          ? ` Ya reclamados ese día: ${otros.map(o => `<b>${esc(o.hora)}${o.hora_fin ? '–' + esc(o.hora_fin) : ''}</b>`).join(', ')}.` : ' Ese día no hay otros horarios reclamados.');
+      };
+      fe.fecha.oninput = verOcupados; verOcupados();
       $('#form-evento', c).onsubmit = async ev => {
         ev.preventDefault(); const f = ev.target;
         if (f.hora.value && f.hora_fin.value && f.hora.value === f.hora_fin.value)
           return aviso('La hora de finalización tiene que ser distinta de la de inicio.', 'error');
         if (f.hora_fin.value && !f.hora.value) return aviso('Poné también la hora de inicio.', 'error');
-        const cambiaCuando = !e.id || f.fecha.value !== e.fecha || f.hora.value !== e.hora;
+        const cambiaCuando = !e.id || f.fecha.value !== e.fecha || f.hora.value !== e.hora || (f.hora_fin.value || '') !== (e.hora_fin || '');
+        const r = cambiaCuando ? rangoEv(f.fecha.value, f.hora.value, f.hora_fin.value) : null;
+        if (r && r[1] - r[0] > MAX_HORAS_EVENTO * 3600e3) return aviso(`Una actividad puede durar como máximo ${MAX_HORAS_EVENTO} horas.`, 'error');
+        const choca = r && eventos.find(o => o.id !== e.id && (() => { const x = rangoEv(o.fecha, o.hora, o.hora_fin); return x && x[0] < r[1] && r[0] < x[1]; })());
+        if (choca) return aviso(`Ese horario ya está reclamado por "${choca.titulo}" (${choca.hora}${choca.hora_fin ? ' a ' + choca.hora_fin : ''}).`, 'error');
         if (cambiaCuando && new Date(`${f.fecha.value}T${f.hora.value || '23:59'}`) < new Date(Date.now() - 60000))
           return aviso('No se pueden programar eventos en una fecha u hora que ya pasó.', 'error');
         try {
@@ -1791,7 +1814,7 @@ async function vistaCalendario(cont) {
   $('#cal-hoy').onclick = () => { const d = new Date(); diaSel = fechaISO(d); abierto = null; estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo); };
   // Clic en un día: lo elige y muestra sus actividades a la derecha. Clic en una actividad: además la abre.
   $('#cal').onclick = ev => {
-    const dia = ev.target.closest('[data-fecha]'); if (!dia) return;
+    const dia = ev.target.closest('[data-fecha]'); if (!dia || dia.dataset.fecha < fechaISO(new Date())) return;
     const be = ev.target.closest('[data-evento]');
     diaSel = dia.dataset.fecha;
     abierto = be ? +be.dataset.evento : null;

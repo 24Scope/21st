@@ -971,8 +971,6 @@ body.ordenando .barra-superior::after { width: 100%; }
 .cal-leyenda > div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12.5px; }
 .cal-leyenda span { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .cal-leyenda i { flex: none; width: 12px; height: 12px; border-radius: 4px; }
-.cal-dia.semana-pasada { min-height: 40px; }
-.cal-dia.semana-pasada .cal-num { opacity: .4; }
 .cal-panel-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .cal-panel-cab h3 { margin: 0; }
 .cal-panel-cab h3::first-letter { text-transform: uppercase; }
@@ -1039,6 +1037,17 @@ body.ordenando .barra-superior::after { width: 100%; }
 @media (max-width: 1300px) { .rev-layout { grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); } .rev-panel { grid-column: 1 / -1; position: static; max-height: none; } }
 @media (max-width: 860px) { .rev-periodo { flex-wrap: wrap; } .rev-meses .mes { flex: none; } }
 /* Calendario: las semanas que vienen usan el alto que liberan las pasadas; la hora va en su propio renglón */
-@media (min-width: 1101px) { .cal-dia:not(.semana-pasada) { min-height: 150px; } }
-.cal-evento .cal-ev-hora { display: block; font-size: 11px; }
-.cal-evento .cal-ev-titulo { -webkit-line-clamp: 3; }
+
+/* Calendario: todos los días del mismo alto; en cada actividad, tipo y horario arriba, título y organizadores abajo */
+.cal-dia { height: 132px; min-height: 0; overflow: hidden; }
+.cal-dia.pasado { cursor: default; background: color-mix(in srgb, var(--superficie) 70%, var(--fondo)); }
+.cal-dia.pasado .cal-num { opacity: .35; }
+.cal-evento { display: flex; flex-direction: column; gap: 1px; padding: 4px 6px; flex: none; }
+.cal-ev-linea { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; min-width: 0; }
+.cal-ev-tipo { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cal-evento .cal-ev-hora { flex: none; font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; opacity: 1; }
+.cal-evento .cal-ev-titulo { font-size: 12px; -webkit-line-clamp: 1; }
+.cal-mas { font-size: 11.5px; font-weight: 600; color: var(--acento-texto); padding: 2px 4px; }
+.cal-dia.puede:hover .cal-mas { text-decoration: underline; }
+@media (max-width: 860px) { .cal-dia { height: 84px; } .cal-ev-linea .cal-ev-tipo, .cal-ev-org { display: none; } }
+.cal-ev-linea { flex-wrap: wrap; column-gap: 6px; row-gap: 0; } .cal-ev-tipo { flex: 0 0 auto; max-width: 100%; }

@@ -196,17 +196,17 @@ const CATEGORIAS = {
   },
 };
 
-/* 6) TIPOS DE ACTIVIDAD DEL CALENDARIO (nombre, color y, si el color es claro, texto oscuro)
+/* 6) TIPOS DE ACTIVIDAD DEL CALENDARIO (nombre, nombre corto para los recuadros del calendario, color y, si el color es claro, texto oscuro)
    especialidad: true = se puede marcar de qué especialidad es (no es otro tipo de actividad) */
 const TIPOS_EVENTO = [
-  { nombre: 'Entrenamiento 21',   color: '#c026d3' },                       // púrpura
-  { nombre: 'Entrenamiento BU',   color: '#475569' },                       // gris pizarra (Blackout Unit)
-  { nombre: 'Rol de PJ',          color: '#c026d3' },                       // púrpura
-  { nombre: 'Mini rol',           color: '#facc15', texto: '#1c1917' },     // amarillo
-  { nombre: 'Capacitación élite', color: '#38bdf8', texto: '#0c1a26', especialidad: true },   // celeste
-  { nombre: 'Try Blackout Unit',  color: '#7c3aed' },                       // violeta
-  { nombre: 'Reunión',            color: '#ef4444' },                       // rojo
-  { nombre: 'Misión',             color: '#facc15', texto: '#1c1917' },     // amarillo
+  { nombre: 'Entrenamiento 21', corto: 'Ent. 21',   color: '#c026d3' },                       // púrpura
+  { nombre: 'Entrenamiento BU', corto: 'Ent. BU',   color: '#475569' },                       // gris pizarra (Blackout Unit)
+  { nombre: 'Rol de PJ', corto: 'Rol PJ',          color: '#c026d3' },                       // púrpura
+  { nombre: 'Mini rol', corto: 'Mini rol',           color: '#facc15', texto: '#1c1917' },     // amarillo
+  { nombre: 'Capacitación élite', corto: 'Cap. élite', color: '#38bdf8', texto: '#0c1a26', especialidad: true },   // celeste
+  { nombre: 'Try Blackout Unit', corto: 'Try BU',  color: '#7c3aed' },                       // violeta
+  { nombre: 'Reunión', corto: 'Reunión',            color: '#ef4444' },                       // rojo
+  { nombre: 'Misión', corto: 'Misión',             color: '#facc15', texto: '#1c1917' },     // amarillo
 ];
 /* Especialidades de la Capacitación élite */
 const ESPECIALIDADES_CAP = { asalto: 'Asalto', apoyo: 'Apoyo', recon: 'Recon' };
