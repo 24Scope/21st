@@ -1584,21 +1584,23 @@ async function vistaMiembros(cont) {
 /* ============================================================ CALENDARIO */
 async function vistaCalendario(cont) {
   const editable = puedeEditar();
+  // El calendario ocupa todo el alto; el mes, el día elegido y la leyenda de colores van en la columna de la derecha
   cont.innerHTML = `
-    <div class="cal-cabecera">
-      <button class="btn chico" data-mov="-1" aria-label="Mes anterior">‹</button>
-      <h2 id="cal-titulo"></h2>
-      <button class="btn chico" data-mov="1" aria-label="Mes siguiente">›</button>
-      <button class="btn chico" id="cal-hoy">Hoy</button>
-      <span class="espacio" style="flex:1"></span>
-      ${editable ? '<button class="btn primario" id="cal-nuevo">+ Nueva actividad</button>' : ''}
-    </div>
     <div class="cal-layout">
-      <div>
-        <div class="cal" id="cal"></div>
-        <div class="leyenda">${TIPOS_EVENTO.map(t => `<span><i class="punto" style="background:${t.color}"></i>${esc(t.nombre)}</span>`).join('')}</div>
-      </div>
-      <aside class="tarjeta cal-panel" id="cal-panel"></aside>
+      <div class="cal" id="cal"></div>
+      <aside class="cal-lado">
+        <div class="tarjeta cal-nav">
+          <button class="btn chico" data-mov="-1" aria-label="Mes anterior">‹</button>
+          <h2 id="cal-titulo"></h2>
+          <button class="btn chico" data-mov="1" aria-label="Mes siguiente">›</button>
+          <button class="btn chico" id="cal-hoy" title="Volver a hoy">Hoy</button>
+        </div>
+        <div class="tarjeta cal-panel" id="cal-panel"></div>
+        <div class="tarjeta cal-leyenda">
+          <h3>Tipos de actividad</h3>
+          <div>${TIPOS_EVENTO.map(t => `<span><i style="background:${t.color}"></i>${esc(t.nombre)}</span>`).join('')}</div>
+        </div>
+      </aside>
     </div>`;
 
   let eventos = [];
@@ -1627,7 +1629,9 @@ async function vistaCalendario(cont) {
     $('#cal').innerHTML = DIAS.map(d => `<div class="cal-dia-nombre">${d}</div>`).join('') + dias.map(d => {
       const iso = fechaISO(d);
       const evs = eventos.filter(e => e.fecha === iso);
-      return `<div class="cal-dia puede ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso < hoy ? 'pasado' : ''} ${iso === diaSel ? 'elegido' : ''}" data-fecha="${iso}">
+      // Las semanas que ya pasaron enteras se achican: dejan más lugar a lo que viene
+      const semanaPasada = fechaISO(dias[Math.floor(dias.indexOf(d) / 7) * 7 + 6]) < hoy;
+      return `<div class="cal-dia puede ${semanaPasada ? 'semana-pasada' : ''} ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso < hoy ? 'pasado' : ''} ${iso === diaSel ? 'elegido' : ''}" data-fecha="${iso}">
         <span class="cal-num">${d.getDate()}</span>
         ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)};color:${textoTipo(e.tipo)}" data-evento="${e.id}"
             title="${esc((e.hora ? horarioEv(e) + ' · ' : '') + e.titulo + '\n' + nombreTipoEv(e) + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
@@ -1785,7 +1789,6 @@ async function vistaCalendario(cont) {
     estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo);
   });
   $('#cal-hoy').onclick = () => { const d = new Date(); diaSel = fechaISO(d); abierto = null; estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo); };
-  if (editable) $('#cal-nuevo').onclick = () => formulario(nuevo(fechaISO(new Date())));
   // Clic en un día: lo elige y muestra sus actividades a la derecha. Clic en una actividad: además la abre.
   $('#cal').onclick = ev => {
     const dia = ev.target.closest('[data-fecha]'); if (!dia) return;
