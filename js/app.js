@@ -367,13 +367,11 @@ function anchoTipico(medidas) {
   const max = medidas[medidas.length - 1];
   return max <= p * 1.4 ? max : p;
 }
-// Aplica los anchos. Si la tabla ocupa todo el ancho disponible (llenar), el espacio que sobra va a la última columna
-// en vez de repartirse: así las columnas no se estiran más de lo que necesita su contenido.
-function colgroupAjustado(tabla, anchos, llenar) {
+// Aplica los anchos: la tabla mide lo que suman sus columnas (no se estira a todo el ancho de la página)
+function colgroupAjustado(tabla, anchos) {
   const total = anchos.reduce((s, a) => s + a, 0);
-  tabla.insertAdjacentHTML('afterbegin', `<colgroup>${anchos.map((a, i) =>
-    llenar && i === anchos.length - 1 ? '<col>' : `<col style="width:${a}px">`).join('')}</colgroup>`);
-  tabla.style.width = llenar ? `max(100%, ${total}px)` : total + 'px';
+  tabla.insertAdjacentHTML('afterbegin', `<colgroup>${anchos.map(a => `<col style="width:${a}px">`).join('')}</colgroup>`);
+  tabla.style.width = total + 'px';
 }
 function ajustarColumnas(cont) {
   for (const tabla of $$('table.hoja', cont)) {
@@ -408,7 +406,7 @@ function ajustarColumnas(cont) {
       anchos.push(Math.round(Math.min(ANCHO_COL.max, Math.max(minimo, minCab, tipico, largo))));
     }
     tabla.querySelector('colgroup')?.remove();
-    colgroupAjustado(tabla, anchos, compacta);
+    colgroupAjustado(tabla, anchos);
     tabla.classList.add('ajustada');
     // La columna fija del nombre arranca después de la del número
     const colN = anchos[0] === 44 && filaCab.cells[0].classList.contains('col-n') ? 44 : 0;
@@ -461,7 +459,7 @@ function ajustarTablaDatos(tabla) {
     anchos.push(Math.round(Math.max(ANCHO_DATOS.min, +th.dataset.anchoMin || 0, minCab, sinCortar, interactivo ? tipico : Math.min(ANCHO_DATOS.max, tipico))));
   }
   tabla.classList.remove('midiendo');
-  colgroupAjustado(tabla, anchos, true);
+  colgroupAjustado(tabla, anchos);
   tabla.classList.add('ajustada');
 }
 // Cada vez que una vista dibuja o actualiza una tabla, se reajusta (una vez por cuadro)
@@ -927,13 +925,8 @@ async function vistaRegistro(cat) {
         orden: f => config.secciones?.columna ? hoja.filas[f][config.secciones.campo] : RANGOS_NORM.indexOf(normRango(hoja.filas[f].grado)) },
       ...fijas.map(x => ({ id: 'fija-' + x.campo, titulo: x.nombre, valor: f => valorFijo(hoja.filas[f], x) })),
       ...cols.map((c, ci) => ({ id: c.clave, titulo: c.nombre, col: c, ci, num: c.tipo === 'numero' || c.numerica,
-        valor: f => textoCelda(f, ci) }))
-        // Las columnas que se cargan a mano y no tienen ningún dato en este período no se muestran (están en la planilla)
-        .filter(c => c.col.tipo !== 'numero' || hoja.filas.some((_, f) => numeroDe(f, c.ci))),
+        valor: f => textoCelda(f, ci) })),
     ];
-    const ocultas = cols.filter((c, ci) => c.tipo === 'numero' && !hoja.filas.some((_, f) => numeroDe(f, ci))).map(c => c.nombre);
-    if (ocultas.length) $('.vista-filtros', hc).insertAdjacentHTML('beforeend',
-      `<span class="tenue" style="font-size:12.5px" title="${esc(ocultas.join(', '))}">· ${ocultas.length} columna${ocultas.length === 1 ? '' : 's'} sin datos en este período oculta${ocultas.length === 1 ? '' : 's'}</span>`);
     function tablaHTML() {
       const q = (hoja.busqueda || '').trim().toLowerCase();
       const visible = f => !q || `${hoja.filas[f].nombre} ${hoja.filas[f].grado} ${hoja.filas[f].elite || ''}`.toLowerCase().includes(q);
