@@ -282,13 +282,26 @@ function navegar() {
   $('#btn-ordenar').hidden = !ordenable;
   document.body.classList.toggle('ordenando', ordenable && estado.ordenando);
   $('#btn-ordenar').classList.toggle('activo', !!estado.ordenando);
-  const cont = $('#contenido');
+  // Cada página se dibuja en su propio contenedor. Si se cambia de página antes de que termine de cargar,
+  // la anterior queda dibujando en un contenedor que ya no está en pantalla y no pisa a la nueva.
+  const zona = $('#contenido');
+  const cont = document.createElement('div');
+  cont.className = 'vista';
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
-  cont.scrollTop = 0;
+  zona.replaceChildren(cont);
+  zona.scrollTop = 0;
 
   const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad, ascensos: vistaAscensos, revision: vistaRevision, escalafon: vistaEscalafon, anuncios: vistaAnuncios };
-  const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
-  Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
+  const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id, cont) : vistas[sec.id];
+  Promise.resolve(vista(cont)).catch(e => {
+    if (!cont.isConnected) return;   // era una página que ya se dejó: su error no importa
+    cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e);
+  });
+}
+// Registra algo para deshacer al salir de la página (suscripciones, relojes). Si la página ya se dejó, se deshace en el momento.
+function alSalir(cont, fn) {
+  if (cont.isConnected) estado.limpiezas.push(fn);
+  else { try { fn(); } catch {} }
 }
 
 /* ============================================================ INICIO */
@@ -610,8 +623,7 @@ function valorFijo(m, f) {
 }
 
 /* ============================================================ REGISTROS (hoja) */
-async function vistaRegistro(cat) {
-  const cont = $('#contenido');
+async function vistaRegistro(cat, cont) {
   const config = CATEGORIAS[cat];
   const cols = config.columnas;
   const fijas = config.fijas || [];
@@ -831,7 +843,7 @@ async function vistaRegistro(cat) {
     });
   }
   cargarConfusos();
-  if (cat === 'bu') estado.limpiezas.push(api.suscribir('bu_pendientes', () => cargarConfusos()));
+  if (cat === 'bu') alSalir(cont, api.suscribir('bu_pendientes', () => cargarConfusos()));
 
   async function cargar() {
     hoja.clave = claveHoja(config, refActual());
@@ -1267,11 +1279,11 @@ async function vistaRegistro(cat) {
 
   // Cambios de otras personas en tiempo real
   let espera;
-  estado.limpiezas.push(api.suscribir('inactividades', () => {
+  alSalir(cont, api.suscribir('inactividades', () => {
     clearTimeout(espera);
     espera = setTimeout(() => { if (!hoja.editando) cargar().catch(fallo); }, 400);
   }));
-  estado.limpiezas.push(api.suscribir('registros', p => {
+  alSalir(cont, api.suscribir('registros', p => {
     const n = p?.new || p?.old, k = hoja.clave;
     if (n && n.categoria && k && (n.categoria !== cat || n.anio !== k.anio || n.mes !== k.mes || (n.periodo || '') !== k.periodo)) return;
     clearTimeout(espera);
@@ -1584,7 +1596,7 @@ async function vistaMiembros(cont) {
       try { await api.borrarMiembro(m.id); miembros = miembros.filter(x => x.id !== m.id); pintar(); aviso('Miembro borrado.'); } catch (e) { fallo(e); }
     }
   };
-  estado.limpiezas.push(api.suscribir('miembros', async () => {
+  alSalir(cont, api.suscribir('miembros', async () => {
     if (!$('#modal-fondo').hidden) return;
     try { todos = await api.listarMiembros(); miembros = ordenarMiembros(todos.filter(esDeLegion)); pintar(); } catch {}
   }));
@@ -1837,7 +1849,7 @@ async function vistaCalendario(cont) {
     }
     if (ev.target.closest('#cal-nuevo-dia')) formulario(nuevo(diaSel));
   };
-  estado.limpiezas.push(api.suscribir('eventos', () => { if ($('#modal-fondo').hidden) cargar().catch(() => {}); }));
+  alSalir(cont, api.suscribir('eventos', () => { if ($('#modal-fondo').hidden) cargar().catch(() => {}); }));
   await cargar();
 }
 
@@ -1953,7 +1965,7 @@ async function vistaReglamento(cont) {
     }
   };
   if (editable) $('#btn-seccion').onclick = () => editar();
-  estado.limpiezas.push(api.suscribir('reglamento', async () => {
+  alSalir(cont, api.suscribir('reglamento', async () => {
     if (!$('#modal-fondo').hidden) return;
     try { secciones = await api.listarReglamento(); pintar(); } catch {}
   }));
@@ -2233,7 +2245,7 @@ async function vistaActividad(cont) {
     if (!await confirmar('Anular actividad', `Se va a anular "${tipoDe(a.tipo)?.nombre}" del ${new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR')} y se descuenta de las tablas de ${a.participantes.length} participante${a.participantes.length === 1 ? '' : 's'}.`, 'Anular')) return;
     try { Object.assign(a, await api.anularActividad(a.id)); pintarHistorial(); aviso('Actividad anulada y descontada.'); } catch (e) { fallo(e); }
   };
-  estado.limpiezas.push(api.suscribir('actividades', async () => {
+  alSalir(cont, api.suscribir('actividades', async () => {
     try { actividades = await api.listarActividades(); pintarHistorial(); } catch {}
   }));
   pintarFormulario();
@@ -2271,6 +2283,7 @@ async function vistaPerfil(cont) {
   const etiqueta = id => { const x = porId.get(id); return x ? `${x.grado} ${x.nombre}` : `#${id}`; };
   const tipoNombre = id => tipos.find(t => t.id === id)?.nombre || id;
   const cuenta = perfiles.find(p => p.miembro_id === m.id);
+  if (!cont.isConnected) return;   // se cambió de página mientras cargaba
   $('#titulo-seccion').textContent = `Perfil · ${m.grado} ${m.nombre}`;
   document.title = `${m.grado} ${m.nombre} · ${NOMBRE_SITIO}`;
 
@@ -2410,7 +2423,7 @@ async function vistaPerfil(cont) {
   // Mientras haya actividades que todavía se pueden anular, se actualiza el contador; al vencer, el botón desaparece
   if (actividades.some(a => minutosParaAnular(a) > 0)) {
     const reloj = setInterval(() => { if ($('#perfil-actividades')) pintar(); else clearInterval(reloj); }, 20000);
-    estado.limpiezas.push(() => clearInterval(reloj));
+    alSalir(cont, () => clearInterval(reloj));
   }
   pintar();
 }
@@ -2615,7 +2628,7 @@ async function vistaForo(cont) {
       } catch {}
     }, 500);
   };
-  estado.limpiezas.push(api.suscribir('foro_temas', refrescar), api.suscribir('foro_comentarios', refrescar));
+  alSalir(cont, api.suscribir('foro_temas', refrescar)); alSalir(cont, api.suscribir('foro_comentarios', refrescar));
 
   pintarLista();
   abrirTema(actual && temas.some(t => t.id === actual) ? actual : (temas.length ? ordenar()[0].id : null));
@@ -2801,7 +2814,7 @@ async function vistaInactividad(cont) {
     } catch (e) { fallo(e); }
   };
   if (veTodo) $('#ver-inact').onchange = e => { filtro.ver = e.target.value; pintarListas(); };
-  estado.limpiezas.push(api.suscribir('inactividades', async () => {
+  alSalir(cont, api.suscribir('inactividades', async () => {
     try { lista = await api.listarInactividades(); pintarListas(); } catch {}
   }));
   pintarFormulario();
@@ -3556,7 +3569,7 @@ async function vistaAscensos(cont) {
       <a href="#/ascensos?ver=historial" class="${pestana === 'historial' ? 'activa' : ''}">Historial de ascensos <span class="etiqueta">${verificadas.length}</span></a>
     </div>
     <div id="asc-cuerpo"></div>`;
-  estado.limpiezas.push(api.suscribir('ascensos_revisiones', () => { if (pestana !== 'nueva' && $('#modal-fondo').hidden) navegar(); }));
+  alSalir(cont, api.suscribir('ascensos_revisiones', () => { if (pestana !== 'nueva' && $('#modal-fondo').hidden) navegar(); }));
 
   if (pestana !== 'nueva') {
     const lista = pestana === 'pendientes' ? sinVerificar : verificadas;
@@ -4002,7 +4015,7 @@ async function detalleRevisionAscenso(cont, id, { porNombre, autor, fechaHora })
     } catch (e) { fallo(e); }
   }
 
-  estado.limpiezas.push(api.suscribir('ascensos_revisiones', async p => {
+  alSalir(cont, api.suscribir('ascensos_revisiones', async p => {
     if ((p?.new?.id ?? p?.old?.id) !== rev.id) return;
     if (p?.new?.actualizado_en && p.new.actualizado_en === rev.actualizado_en) return;   // fue un guardado propio
     if (!cambios && $('#modal-fondo').hidden) { navegar(); return; }
@@ -4257,7 +4270,7 @@ async function vistaUsuarios(cont) {
     } catch (e) { fallo(e); b.disabled = false; }
   };
   // Si alguien se registra mientras está abierta la sección, aparece sola
-  if (!MODO_DEMO) estado.limpiezas.push(api.suscribir('perfiles', async () => {
+  if (!MODO_DEMO) alSalir(cont, api.suscribir('perfiles', async () => {
     try { perfiles = await api.listarPerfiles(); pintar(); } catch {}
   }));
 
