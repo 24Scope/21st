@@ -199,11 +199,12 @@ const CATEGORIAS = {
 /* 6) TIPOS DE ACTIVIDAD DEL CALENDARIO (nombre, color y, si el color es claro, texto oscuro)
    especialidad: true = se puede marcar de qué especialidad es (no es otro tipo de actividad) */
 const TIPOS_EVENTO = [
-  { nombre: 'Entrenamiento 21',   color: '#7c3aed' },                       // violeta
-  { nombre: 'Rol de PJ',          color: '#7c3aed' },                       // violeta
+  { nombre: 'Entrenamiento 21',   color: '#c026d3' },                       // púrpura
+  { nombre: 'Entrenamiento BU',   color: '#475569' },                       // gris pizarra (Blackout Unit)
+  { nombre: 'Rol de PJ',          color: '#c026d3' },                       // púrpura
   { nombre: 'Mini rol',           color: '#facc15', texto: '#1c1917' },     // amarillo
   { nombre: 'Capacitación élite', color: '#38bdf8', texto: '#0c1a26', especialidad: true },   // celeste
-  { nombre: 'Try de subdivisión', color: '#c026d3' },                       // púrpura
+  { nombre: 'Try Blackout Unit',  color: '#7c3aed' },                       // violeta
   { nombre: 'Reunión',            color: '#ef4444' },                       // rojo
   { nombre: 'Misión',             color: '#facc15', texto: '#1c1917' },     // amarillo
 ];
