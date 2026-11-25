@@ -466,7 +466,7 @@ a.sub:hover { color: var(--acento); text-decoration: underline; }
 .rev-act-link { font-weight: 600; color: var(--texto); text-decoration: none; }
 .rev-act-link:hover { color: var(--acento-texto); text-decoration: underline; }
 .tag-act { display: inline-block; flex: none; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
-  color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); }
+  color: color-mix(in srgb, var(--c) 72%, #fff); background: color-mix(in srgb, var(--c) 20%, transparent); border: 1px solid color-mix(in srgb, var(--c) 55%, transparent); }
 @media (max-width: 860px) {
   .rev-layout { grid-template-columns: 1fr; }
   .rev-lista { position: static; max-height: 300px; }
@@ -909,7 +909,7 @@ body.ordenando .barra-superior::after { width: 100%; }
 .inicio-act-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
 .inicio-act-quien { font-size: 13.5px; margin-top: 3px; }
 .inicio-act-quien .dato-etiqueta { display: inline-block; min-width: 96px; }
-.inicio-try { border-color: rgba(20, 184, 166, .45); }
+.inicio-try { border-color: rgba(124, 58, 237, .55); }
 .inicio-try-fecha { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
 .inicio-try-fecha::first-letter { text-transform: uppercase; }
 @media (max-width: 1000px) { .inicio-rejilla { grid-template-columns: 1fr; } }
@@ -938,7 +938,9 @@ body.ordenando .barra-superior::after { width: 100%; }
 .cal-item.abierto { border-color: var(--acento); border-left-color: var(--c); }
 .cal-item-cab { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; background: none; border: 0; color: var(--texto); font: inherit; text-align: left; cursor: pointer; }
 .cal-item-cab:hover { background: rgba(255, 255, 255, .03); }
-.cal-item-hora { font-family: ui-monospace, monospace; font-size: 13px; color: var(--acento-texto); min-width: 44px; }
+.cal-item-hora { font-family: ui-monospace, monospace; font-size: 13px; color: var(--acento-texto); min-width: 48px; display: flex; flex-direction: column; line-height: 1.25; }
+.cal-item-hora small { font-size: 11px; color: var(--texto-2); }
+.cal-cabecera button:disabled { opacity: .35; cursor: default; }
 .cal-item-tit { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cal-item-tit strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-item-tit small { color: var(--texto-2); font-size: 12px; }

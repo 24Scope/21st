@@ -51,6 +51,16 @@ const esAdmin = () => (estado.perfil?.rango ?? 0) >= RANGO_ADMIN;
 const puedeEditar = () => esAdmin() || estado.ajustes.modo_abierto === true;
 const nombreRango = r => RANGOS[r] || `Rango ${r}`;
 const colorTipo = t => (TIPOS_EVENTO.find(x => x.nombre === t) || { color: '#64748b' }).color;
+// Cuándo termina una actividad del calendario: a su hora de fin (si es menor que la de inicio, al día siguiente);
+// si no tiene hora de fin, al final del día. Las que ya terminaron no se muestran en el calendario.
+function finEv(e) {
+  const fin = /^\d{1,2}:\d{2}$/.test(e.hora_fin || '') ? e.hora_fin.padStart(5, '0') : '23:59';
+  const d = new Date(`${e.fecha}T${fin}`);
+  if (e.hora_fin && e.hora && fin <= String(e.hora).padStart(5, '0')) d.setDate(d.getDate() + 1);
+  return d;
+}
+const terminoEv = e => finEv(e) < new Date();
+const horarioEv = e => e.hora ? e.hora + (e.hora_fin ? ' a ' + e.hora_fin : '') : '';
 const textoTipo = t => TIPOS_EVENTO.find(x => x.nombre === t)?.texto || '#fff';
 // Nombre del tipo con la especialidad entre paréntesis, ej.: "Capacitación élite (Asalto)"
 const nombreTipoEv = e => (e.tipo || 'Actividad') + (e.especialidad && ESPECIALIDADES_CAP[e.especialidad] ? ` (${ESPECIALIDADES_CAP[e.especialidad]})` : '');
@@ -296,10 +306,11 @@ async function vistaInicio(cont) {
       <p class="inicio-anuncio-txt">${esc(a.cuerpo)}</p>
     </a>`).join('') : '<div class="vacio">No hay anuncios.</div>';
 
-  const htmlEventos = eventos.length ? `<ul class="lista-simple inicio-eventos">${eventos.slice(0, 12).map(e => `
+  const proximas = eventos.filter(e => !terminoEv(e));   // las que ya terminaron no se muestran
+  const htmlEventos = proximas.length ? `<ul class="lista-simple inicio-eventos">${proximas.slice(0, 12).map(e => `
     <li><span class="punto" style="background:${colorTipo(e.tipo)}"></span>
       <div style="flex:1;min-width:0"><strong>${esc(e.titulo)}</strong><div class="dato-etiqueta">${esc(nombreTipoEv(e))}</div></div>
-      <span class="inicio-cuando">${fechaCorta(e.fecha, e.hora)}</span></li>`).join('')}</ul>`
+      <span class="inicio-cuando">${fechaCorta(e.fecha, horarioEv(e))}</span></li>`).join('')}</ul>`
     : '<div class="vacio">No hay actividades programadas en los próximos 30 días.</div>';
 
   const htmlUltimas = ultimas.length ? `<ul class="inicio-acts">${ultimas.map(a => `
@@ -1564,13 +1575,17 @@ async function vistaCalendario(cont) {
   let diaSel = fechaISO(new Date()), abierto = null;
   const resumirDesc = (t, n = 90) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; };
 
+  const mesActual = () => { const d = new Date(); return d.getFullYear() * 12 + d.getMonth(); };
   async function cargar() {
+    // Solo del mes actual en adelante
+    if (estado.cal.anio * 12 + estado.cal.mes - 1 < mesActual()) { const d = new Date(); estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; }
     const { anio, mes } = estado.cal;
+    $('[data-mov="-1"]', cont).disabled = anio * 12 + mes - 1 <= mesActual();
     $('#cal-titulo').textContent = `${MESES[mes - 1]} ${anio}`;
     const primero = new Date(anio, mes - 1, 1);
     const inicio = new Date(anio, mes - 1, 1 - ((primero.getDay() + 6) % 7));
     const dias = Array.from({ length: 42 }, (_, i) => new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate() + i));
-    eventos = await api.listarEventos(fechaISO(dias[0]), fechaISO(dias[41]));
+    eventos = (await api.listarEventos(fechaISO(dias[0]), fechaISO(dias[41]))).filter(e => !terminoEv(e));
     const hoy = fechaISO(new Date());
     $('#cal').innerHTML = DIAS.map(d => `<div class="cal-dia-nombre">${d}</div>`).join('') + dias.map(d => {
       const iso = fechaISO(d);
@@ -1578,8 +1593,8 @@ async function vistaCalendario(cont) {
       return `<div class="cal-dia puede ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso < hoy ? 'pasado' : ''} ${iso === diaSel ? 'elegido' : ''}" data-fecha="${iso}">
         <span class="cal-num">${d.getDate()}</span>
         ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)};color:${textoTipo(e.tipo)}" data-evento="${e.id}"
-            title="${esc((e.hora ? e.hora + ' · ' : '') + e.titulo + '\n' + nombreTipoEv(e) + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
-            <span class="cal-ev-titulo">${e.hora ? `<span class="cal-ev-hora">${esc(e.hora)}</span> ` : ''}“${esc(e.titulo)}”</span>
+            title="${esc((e.hora ? horarioEv(e) + ' · ' : '') + e.titulo + '\n' + nombreTipoEv(e) + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
+            <span class="cal-ev-titulo">${e.hora ? `<span class="cal-ev-hora">${esc(horarioEv(e))}</span> ` : ''}“${esc(e.titulo)}”</span>
             ${e.especialidad && ESPECIALIDADES_CAP[e.especialidad] ? `<span class="cal-ev-esp">${esc(ESPECIALIDADES_CAP[e.especialidad])}</span>` : ''}
             ${e.descripcion ? `<span class="cal-ev-desc">${esc(resumirDesc(e.descripcion))}</span>` : ''}
             ${(e.organizadores || []).length ? `<span class="cal-ev-org">${esc(e.organizadores.map(id => porIdCal.get(id)?.nombre || '¿?').join(', '))}</span>` : ''}</button>`).join('')}
@@ -1602,7 +1617,7 @@ async function vistaCalendario(cont) {
         const ab = abierto === e.id;
         return `<div class="cal-item ${ab ? 'abierto' : ''}" style="--c:${colorTipo(e.tipo)}">
           <button class="cal-item-cab" data-abrir="${e.id}" aria-expanded="${ab}">
-            <span class="cal-item-hora">${esc(e.hora || '—')}</span>
+            <span class="cal-item-hora">${e.hora ? esc(e.hora) + (e.hora_fin ? `<small>a ${esc(e.hora_fin)}</small>` : '') : '—'}</span>
             <span class="cal-item-tit"><strong>${esc(e.titulo)}</strong><small>${esc(nombreTipoEv(e))}</small></span>
             <span class="cal-item-flecha">${ab ? '▴' : '▾'}</span>
           </button>
@@ -1622,7 +1637,7 @@ async function vistaCalendario(cont) {
     const opciones = TIPOS_EVENTO.map(t => `<option ${t.nombre === e.tipo ? 'selected' : ''}>${esc(t.nombre)}</option>`).join('');
     abrirModal(soloVer ? e.titulo : (e.id ? 'Editar actividad' : 'Nueva actividad'), soloVer ? `
       <p class="dato-etiqueta" style="margin:0 0 6px"><i class="punto" style="display:inline-block;background:${colorTipo(e.tipo)}"></i> ${esc(nombreTipoEv(e))}</p>
-      <p style="margin:0 0 12px"><strong>${esc(new Date(e.fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</strong>${e.hora ? ' · ' + esc(e.hora) : ''}</p>
+      <p style="margin:0 0 12px"><strong>${esc(new Date(e.fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</strong>${e.hora ? ' · ' + esc(horarioEv(e)) : ''}</p>
       <p style="white-space:pre-wrap;line-height:1.5;margin:0 0 12px">${esc(e.descripcion) || '<span style="color:var(--texto-3)">Sin descripción.</span>'}</p>
       ${(e.organizadores || []).length ? `<p style="margin:0 0 16px"><span class="dato-etiqueta">Programado por</span><br>${e.organizadores.map(id => `<span class="chip-acomp">${esc(nombreOrg(id))}</span>`).join(' ')}</p>` : ''}
       <div class="modal-pie"><button class="btn" data-cancelar>Cerrar</button></div>` : `
@@ -1630,7 +1645,10 @@ async function vistaCalendario(cont) {
         <label class="campo"><span>Título</span><input name="titulo" required maxlength="100" value="${esc(e.titulo)}"></label>
         <div class="fila-campos">
           <label class="campo"><span>Fecha</span><input name="fecha" type="date" required value="${esc(e.fecha)}" ${e.id ? '' : `min="${fechaISO(new Date())}"`}></label>
-          <label class="campo"><span>Hora</span><input name="hora" type="time" ${e.id ? "" : "required"} value="${esc(e.hora)}"></label>
+        </div>
+        <div class="fila-campos">
+          <label class="campo"><span>Hora de inicio</span><input name="hora" type="time" ${e.id ? "" : "required"} value="${esc(e.hora)}"></label>
+          <label class="campo"><span>Hora de finalización</span><input name="hora_fin" type="time" ${e.id ? "" : "required"} value="${esc(e.hora_fin || '')}"></label>
         </div>
         <div class="fila-campos">
           <label class="campo"><span>Tipo</span><select name="tipo">${opciones}</select></label>
@@ -1697,12 +1715,15 @@ async function vistaCalendario(cont) {
       fe.tipo.onchange = verEsp; verEsp();
       $('#form-evento', c).onsubmit = async ev => {
         ev.preventDefault(); const f = ev.target;
+        if (f.hora.value && f.hora_fin.value && f.hora.value === f.hora_fin.value)
+          return aviso('La hora de finalización tiene que ser distinta de la de inicio.', 'error');
+        if (f.hora_fin.value && !f.hora.value) return aviso('Poné también la hora de inicio.', 'error');
         const cambiaCuando = !e.id || f.fecha.value !== e.fecha || f.hora.value !== e.hora;
         if (cambiaCuando && new Date(`${f.fecha.value}T${f.hora.value || '23:59'}`) < new Date(Date.now() - 60000))
           return aviso('No se pueden programar eventos en una fecha u hora que ya pasó.', 'error');
         try {
           await api.guardarEvento({ ...(e.id ? { id: e.id } : {}), titulo: f.titulo.value.trim(), fecha: f.fecha.value,
-            hora: f.hora.value, tipo: f.tipo.value, descripcion: f.descripcion.value.trim(), organizadores: orgs,
+            hora: f.hora.value, hora_fin: f.hora_fin.value || null, tipo: f.tipo.value, descripcion: f.descripcion.value.trim(), organizadores: orgs,
             especialidad: TIPOS_EVENTO.find(t => t.nombre === f.tipo.value)?.especialidad ? (f.especialidad.value || null) : null });
           cerrarModal(); aviso('Actividad guardada.');
           if (!e.id || f.fecha.value !== e.fecha) diaSel = f.fecha.value;
@@ -1711,17 +1732,19 @@ async function vistaCalendario(cont) {
       };
       const b = $('[data-borrar]', c);
       if (b) b.onclick = async () => {
-        if (!await confirmar('Borrar evento', `¿Borrar "${e.titulo}"?`, 'Borrar')) return;
-        try { await api.borrarEvento(e.id); aviso('Evento borrado.'); await cargar(); } catch (er) { fallo(er); }
+        if (!await confirmar('Borrar actividad', `¿Borrar "${e.titulo}"?`, 'Borrar')) return;
+        try { await api.borrarEvento(e.id); cerrarModal(); aviso('Actividad borrada.'); await cargar(); } catch (er) { fallo(er); }
       };
     });
   }
 
   const horaActual = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-  const nuevo = fecha => ({ titulo: '', fecha, hora: horaActual(), tipo: TIPOS_EVENTO[0]?.nombre || '', descripcion: '',
+  const unaHoraDespues = h => { const [a, b] = h.split(':').map(Number); return `${pad((a + 1) % 24)}:${pad(b)}`; };
+  const nuevo = fecha => ({ titulo: '', fecha, hora: horaActual(), hora_fin: unaHoraDespues(horaActual()), tipo: TIPOS_EVENTO[0]?.nombre || '', descripcion: '',
     organizadores: estado.perfil.miembro_id ? [estado.perfil.miembro_id] : [] });
   $$('[data-mov]', cont).forEach(b => b.onclick = () => {
     const d = new Date(estado.cal.anio, estado.cal.mes - 1 + +b.dataset.mov, 1);
+    if (d.getFullYear() * 12 + d.getMonth() < mesActual()) return;
     estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo);
   });
   $('#cal-hoy').onclick = () => { const d = new Date(); diaSel = fechaISO(d); abierto = null; estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo); };
@@ -2872,10 +2895,13 @@ async function vistaEscalafon(cont) {
 
 /* ============================================================ REVISIÓN DE ACTIVIDAD (Suboficiales, Oficiales y Comandantes) */
 // Color de la etiqueta de cada tipo de actividad (los tipos nuevos que no estén acá usan gris)
+// Mismos colores que el Calendario: 21st y Rol de PJ púrpura, BU gris, Try BU violeta, élite celeste, miniroles y misiones amarillo
 const COLOR_TIPO_ACT = {
-  ent_21: '#3b82f6', ent_esp: '#8b5cf6', ent_bu: '#64748b', rol_pj: '#f59e0b', minirol: '#ec4899',
-  try_bu: '#14b8a6', try_esp: '#6366f1', try_21: '#22c55e', mis_21: '#ef4444', mis_bu: '#dc2626',
-  cap_sombra: '#475569', mis_elite: '#e11d48',
+  ent_21: '#c026d3', try_21: '#c026d3', rol_pj: '#c026d3',
+  ent_bu: '#64748b', cap_sombra: '#64748b',
+  try_bu: '#7c3aed',
+  ent_esp: '#38bdf8', try_esp: '#38bdf8',
+  minirol: '#facc15', mision: '#facc15', mis_21: '#facc15', mis_bu: '#facc15', mis_elite: '#facc15',
 };
 const CATS_REVISION = [
   { cat: 'comandantes', titulo: 'Comandantes' },
