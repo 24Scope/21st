@@ -283,69 +283,106 @@ function navegar() {
 
 /* ============================================================ INICIO */
 async function vistaInicio(cont) {
-  const hoy = new Date();
-  const [personas, eventos, anuncios, tipos, ultimas, tryBU] = await Promise.all([
+  const hoy = new Date(), hoyISO = fechaISO(hoy);
+  const miId = estado.perfil.miembro_id;
+  const [personas, eventos, anuncios, tipos, ultimas, tryBU, mias] = await Promise.all([
     api.listarPersonas(),
-    api.listarEventos(fechaISO(hoy), fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30))),
+    api.listarEventos(hoyISO, fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30))),
     api.listarAnuncios(3),
     api.listarTiposActividad(),
-    api.ultimasActividades(3),
+    api.ultimasActividades(4),
     api.ultimasActividades(1, 'try_bu'),
+    miId ? api.listarActividadesMiembro(miId).catch(() => []) : Promise.resolve([]),
   ]);
   const porId = new Map(personas.map(m => [m.id, m]));
   const quien = id => { const x = porId.get(id); return x ? `${x.grado} ${x.nombre}` : 'Desconocido'; };
   const nombres = ids => ids?.length ? ids.map(id => esc(quien(id))).join(', ') : '<span class="tenue">—</span>';
   const tipoNombre = id => tipos.find(t => t.id === id)?.nombre || id;
-  const fechaCorta = (f, hora) => { const d = new Date(f + 'T00:00:00');
-    return `${DIAS[(d.getDay() + 6) % 7]} ${d.getDate()}/${d.getMonth() + 1}${hora ? ' · ' + esc(hora) : ''}`; };
+  const nombreAct = a => tipoNombre(a.tipo) + (a.especializacion ? ' · ' + (ESPECIALIZACIONES_TRY[a.especializacion] || a.especializacion) : '');
+  const diaCorto = f => { const d = new Date(f + 'T00:00:00'); return `${DIAS[(d.getDay() + 6) % 7]} ${d.getDate()}/${d.getMonth() + 1}`; };
 
-  const htmlAnuncios = anuncios.length ? anuncios.map(a => `
-    <a class="inicio-anuncio" href="#/anuncios">
-      <div class="inicio-anuncio-cab"><strong>${a.fijado ? '📌 ' : ''}${esc(a.titulo)}</strong>
-        <span class="dato-etiqueta">${esc(a.autor_nombre || '')}${a.autor_nombre ? ' · ' : ''}${new Date(a.creado_en).toLocaleDateString('es-AR')}</span></div>
-      <p class="inicio-anuncio-txt">${esc(a.cuerpo)}</p>
-    </a>`).join('') : '<div class="vacio">No hay anuncios.</div>';
+  // ---------- Cabecera: saludo y datos del momento
+  const proximas = eventos.filter(e => !terminoEv(e)).sort((a, b) => (a.fecha + (a.hora || '99')).localeCompare(b.fecha + (b.hora || '99')));
+  const en7 = fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 7));
+  const nHoy = proximas.filter(e => e.fecha === hoyISO).length, nSemana = proximas.filter(e => e.fecha < en7).length;
+  const mesISO = hoyISO.slice(0, 7);
+  const misDelMes = mias.filter(a => !a.anulada && a.fecha.startsWith(mesISO)).length;
+  const yo = porId.get(miId);
+  const fechaLarga = hoy.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const stat = (n, t, href) => `<a class="inicio-stat" ${href ? `href="${href}"` : ''}><b>${n}</b><span>${t}</span></a>`;
 
-  const proximas = eventos.filter(e => !terminoEv(e));   // las que ya terminaron no se muestran
-  const htmlEventos = proximas.length ? `<ul class="lista-simple inicio-eventos">${proximas.slice(0, 12).map(e => `
-    <li><span class="punto" style="background:${colorTipo(e.tipo)}"></span>
-      <div style="flex:1;min-width:0"><strong>${esc(e.titulo)}</strong><div class="dato-etiqueta">${esc(nombreTipoEv(e))}</div></div>
-      <span class="inicio-cuando">${fechaCorta(e.fecha, horarioEv(e))}</span></li>`).join('')}</ul>`
-    : '<div class="vacio">No hay actividades programadas en los próximos 30 días.</div>';
+  // ---------- Agenda: próximas actividades agrupadas por día
+  const MAX_AGENDA = 8;
+  const enAgenda = proximas.slice(0, MAX_AGENDA);
+  const manianaISO = fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 1));
+  const tituloDia = f => {
+    const d = new Date(f + 'T00:00:00'), largo = d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(',', '');
+    return f === hoyISO ? `Hoy <small>${esc(largo)}</small>` : f === manianaISO ? `Mañana <small>${esc(largo)}</small>` : esc(largo);
+  };
+  const dias = [...new Set(enAgenda.map(e => e.fecha))];
+  const htmlAgenda = enAgenda.length ? dias.map(f => `
+    <div class="agenda-dia">${tituloDia(f)}</div>
+    ${enAgenda.filter(e => e.fecha === f).map(e => `
+      <a class="agenda-item" href="#/calendario" style="--c:${colorTipo(e.tipo)}">
+        <span class="agenda-hora">${esc(e.hora || '—')}${e.hora_fin ? `<small>${esc(e.hora_fin)}</small>` : ''}</span>
+        <span class="agenda-info"><strong>${esc(e.titulo)}</strong><small>${esc(nombreTipoEv(e))}</small></span>
+      </a>`).join('')}`).join('')
+    + (proximas.length > MAX_AGENDA ? `<a class="agenda-mas" href="#/calendario">+${proximas.length - MAX_AGENDA} más en el calendario</a>` : '')
+    : '<div class="vacio-chico">No hay actividades programadas en los próximos 30 días.</div>';
 
-  const htmlUltimas = ultimas.length ? `<ul class="inicio-acts">${ultimas.map(a => `
-    <li>
-      <div class="inicio-act-cab">${etiquetaTipoAct(a.tipo, tipoNombre(a.tipo) + (a.especializacion ? ' · ' + (ESPECIALIZACIONES_TRY[a.especializacion] || a.especializacion) : ''))}
-        <span class="dato-etiqueta">${fechaCorta(a.fecha, a.hora)}</span></div>
-      <div class="inicio-act-quien"><span class="dato-etiqueta">Realizadores</span> ${nombres(a.participantes)}</div>
-      ${a.ayudantes?.length ? `<div class="inicio-act-quien"><span class="dato-etiqueta">Ayudantes</span> ${nombres(a.ayudantes)}</div>` : ''}
-    </li>`).join('')}</ul>` : '<div class="vacio">Todavía no hay actividades registradas.</div>';
+  // ---------- Anuncios: el principal completo (recortado) y los demás como títulos
+  const [principal, ...otros] = anuncios;
+  const metaAnuncio = a => `${esc(a.autor_nombre || '')}${a.autor_nombre ? ' · ' : ''}${new Date(a.creado_en).toLocaleDateString('es-AR')}`;
+  const htmlAnuncios = principal ? `
+    <a class="anuncio-principal" href="#/anuncios">
+      <div class="anuncio-principal-cab"><strong>${principal.fijado ? '📌 ' : ''}${esc(principal.titulo)}</strong><span class="dato-etiqueta">${metaAnuncio(principal)}</span></div>
+      <p>${esc(principal.cuerpo)}</p>
+    </a>
+    ${otros.map(a => `<a class="anuncio-otro" href="#/anuncios"><span>${a.fijado ? '📌 ' : ''}${esc(a.titulo)}</span><span class="dato-etiqueta">${metaAnuncio(a)}</span></a>`).join('')}`
+    : '<div class="vacio-chico">No hay anuncios.</div>';
 
+  // ---------- Actividad reciente: la última Try BU destacada y las últimas registradas
   const t = tryBU[0];
   const htmlTry = t ? `
-    <div class="inicio-try-fecha">${new Date(t.fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${t.hora ? ` · ${esc(t.hora)}` : ''}</div>
-    <div class="inicio-act-quien"><span class="dato-etiqueta">Organizadores</span> ${nombres(t.participantes)}</div>
-    ${t.ayudantes?.length ? `<div class="inicio-act-quien"><span class="dato-etiqueta">Ayudantes</span> ${nombres(t.ayudantes)}</div>` : ''}`
-    : '<div class="vacio">Todavía no hay ninguna Try BU registrada.</div>';
+    <div class="reciente-try" style="--c:${COLOR_TIPO_ACT.try_bu}">
+      <div class="reciente-try-cab"><span class="reciente-try-titulo">Última Try BU</span><span>${esc(new Date(t.fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }))}${t.hora ? ' · ' + esc(t.hora) : ''}</span></div>
+      <div class="reciente-quien"><span>Organizadores</span>${nombres(t.participantes)}</div>
+      ${t.ayudantes?.length ? `<div class="reciente-quien"><span>Ayudantes</span>${nombres(t.ayudantes)}</div>` : ''}
+    </div>` : '';
+  const lista = ultimas.filter(a => a.id !== t?.id).slice(0, 3);
+  const htmlRecientes = lista.length ? `<ul class="reciente-lista">${lista.map(a => `
+    <li>
+      <div class="reciente-cab">${etiquetaTipoAct(a.tipo, nombreAct(a))}<span class="dato-etiqueta">${diaCorto(a.fecha)}${a.hora ? ' · ' + esc(a.hora) : ''}</span></div>
+      <div class="reciente-quien"><span>Realizadores</span>${nombres(a.participantes)}</div>
+      ${a.ayudantes?.length ? `<div class="reciente-quien"><span>Ayudantes</span>${nombres(a.ayudantes)}</div>` : ''}
+    </li>`).join('')}</ul>` : (t ? '' : '<div class="vacio-chico">Todavía no hay actividades registradas.</div>');
 
   cont.innerHTML = `
-    <p style="margin:0 0 20px;color:var(--texto-2)">Hola, <strong style="color:var(--texto)">${esc(estado.perfil.nombre)}</strong>.</p>
-    <div class="inicio-rejilla">
-      <section class="tarjeta inicio-bloque">
-        <div class="inicio-cab"><h3>Anuncios</h3><a class="btn chico" href="#/anuncios">Ver todos los anuncios →</a></div>
-        ${htmlAnuncios}
-      </section>
-      <section class="tarjeta inicio-bloque inicio-try">
-        <div class="inicio-cab"><h3>Última Try BU</h3></div>
-        ${htmlTry}
-      </section>
-      <section class="tarjeta inicio-bloque">
-        <div class="inicio-cab"><h3>Próximas actividades</h3><a class="btn chico" href="#/calendario">Calendario →</a></div>
-        ${htmlEventos}
-      </section>
-      <section class="tarjeta inicio-bloque">
-        <div class="inicio-cab"><h3>Últimas actividades registradas</h3></div>
-        ${htmlUltimas}
+    <section class="inicio-hero">
+      <div class="inicio-hola">
+        <h2>Hola, ${esc(yo ? yo.nombre : estado.perfil.nombre)}</h2>
+        <span>${esc(fechaLarga.charAt(0).toUpperCase() + fechaLarga.slice(1))}</span>
+      </div>
+      <div class="inicio-stats">
+        ${stat(nHoy, nHoy === 1 ? 'actividad hoy' : 'actividades hoy', '#/calendario')}
+        ${stat(nSemana, 'en los próximos 7 días', '#/calendario')}
+        ${miId ? stat(misDelMes, `tu actividad en ${MESES[hoy.getMonth()].toLowerCase()}`, '#/perfil') : ''}
+      </div>
+    </section>
+    <div class="inicio-grid">
+      <div class="inicio-col">
+        <section class="tarjeta inicio-bloque">
+          <div class="inicio-cab"><h3>Anuncios</h3><a class="link-suave" href="#/anuncios">Ver todos →</a></div>
+          ${htmlAnuncios}
+        </section>
+        <section class="tarjeta inicio-bloque">
+          <div class="inicio-cab"><h3>Actividad reciente</h3><a class="link-suave" href="#/actividad">Registrar actividad →</a></div>
+          ${htmlTry}${htmlRecientes}
+        </section>
+      </div>
+      <section class="tarjeta inicio-bloque inicio-agenda">
+        <div class="inicio-cab"><h3>Próximas actividades</h3><a class="link-suave" href="#/calendario">Calendario →</a></div>
+        ${htmlAgenda}
       </section>
     </div>`;
 }
