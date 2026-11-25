@@ -212,6 +212,8 @@ const TIPOS_EVENTO = [
    Más adelante podés subir un número a 2 para que solo lo vean administradores. */
 const SECCIONES = [
   { id: 'inicio',       titulo: 'Inicio',                            icono: '▦', grupo: 'Principal',    rangoMinimo: 1 },
+  // enMenu: false = no aparece en el menú lateral (se entra desde otra sección)
+  { id: 'anuncios',     titulo: 'Anuncios',                          icono: '✉', grupo: 'Principal',    rangoMinimo: 1, enMenu: false },
   { id: 'perfil',       titulo: 'Mi perfil',                         icono: '◉', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'escalafon',    titulo: 'Escalafón militar',                 icono: '≡', grupo: 'Principal',    rangoMinimo: 1 },
   { id: 'calendario',   titulo: 'Calendario',                        icono: '▤', grupo: 'Principal',    rangoMinimo: 1 },

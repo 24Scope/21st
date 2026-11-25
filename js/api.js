@@ -150,6 +150,18 @@ function crearApiSupabase() {
     async listarActividades(limite = 200) {
       return ok(await sb.from('actividades').select('*').order('creado_en', { ascending: false }).limit(limite));
     },
+    // Últimas actividades vigentes (no anuladas), las más recientes primero; con tipo, solo de ese tipo
+    async ultimasActividades(limite = 3, tipo = null) {
+      let q = sb.from('actividades').select('*').eq('anulada', false);
+      if (tipo) q = q.eq('tipo', tipo).order('fecha', { ascending: false });
+      return ok(await q.order('creado_en', { ascending: false }).limit(limite));
+    },
+    // ---- Anuncios (los fijados primero, después los más nuevos)
+    async listarAnuncios(limite = 100) {
+      return ok(await sb.from('anuncios').select('*').order('fijado', { ascending: false }).order('creado_en', { ascending: false }).limit(limite));
+    },
+    // ---- Cambio de rango desde Miembros de la legión (la base controla los permisos)
+    async cambiarGrado(miembroId, grado) { return ok(await sb.rpc('cambiar_grado_miembro', { p_miembro: miembroId, p_grado: grado })); },
     // Actividades vigentes (no anuladas) con fecha entre desde y hasta (inclusive)
     async listarActividadesEntre(desde, hasta) {
       return ok(await sb.from('actividades').select('*').eq('anulada', false).gte('fecha', desde).lte('fecha', hasta)
@@ -395,6 +407,30 @@ function crearApiDemo() {
 
     async listarTiposActividad() { return []; },
     async listarActividades() { return []; },
+    async ultimasActividades(limite = 3, tipo = null) {
+      return (leer().actividades || []).filter(a => !a.anulada && (!tipo || a.tipo === tipo))
+        .sort((a, b) => (tipo ? b.fecha.localeCompare(a.fecha) : 0) || b.creado_en.localeCompare(a.creado_en)).slice(0, limite);
+    },
+    async listarAnuncios() {
+      const db = leer();
+      if (!db.anuncios) {
+        db.anuncios = [{ id: id(db), fijado: true, autor_nombre: 'Comandancia 21st', creado_en: new Date().toISOString(),
+          titulo: '¡Bienvenidos al Panel de control 21st!',
+          cuerpo: 'Este es el panel de gestión de la legión (anuncio de prueba de la demo).\n\n• Inicio: anuncios, próximas actividades y últimas actividades registradas.\n• Registrar actividad: se suma sola a las planillas.' }];
+        escribir(db);
+      }
+      return db.anuncios.slice().sort((a, b) => b.fijado - a.fijado || b.creado_en.localeCompare(a.creado_en));
+    },
+    async cambiarGrado(mid, grado) {
+      await espera(); const db = leer(); const u = usuarioActual(db);
+      if (!u || u.rango < 6) throw new Error('Solo los Comandantes en adelante pueden cambiar rangos.');
+      const m = db.miembros.find(x => x.id === mid); if (!m) throw new Error('Ese miembro no existe.');
+      const cmd = g => ['CMD', 'CMD1', 'CMDM', 'CMDB', 'MRL'].includes(String(g || '').replace(/\s/g, '').toUpperCase());
+      if (u.rango < 7 && (cmd(m.grado) || cmd(grado))) throw new Error('El rango de Comandante en adelante solo lo puede cambiar un Mariscal.');
+      if (m.id === u.miembro_id && u.rango < 8) throw new Error('No podés cambiarte el rango a vos mismo.');
+      Object.assign(m, { grado, categoria: categoriaDeRango(grado) || m.categoria, fecha_rango: new Date().toISOString().slice(0, 10) });
+      escribir(db); return { ...m };
+    },
     async listarActividadesEntre() { return []; },
     async listarInactividades() { return (leer().inactividades || []).slice(); },
     async listarInactividadesEntre(d, h) { return (leer().inactividades || []).filter(x => x.desde <= h && x.hasta >= d); },

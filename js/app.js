@@ -236,7 +236,7 @@ function seccionesVisibles() {
 
 function pintarMenu() {
   let html = '', grupo = null;
-  for (const s of seccionesVisibles()) {
+  for (const s of seccionesVisibles().filter(s => s.enMenu !== false)) {
     if (s.grupo !== grupo) { grupo = s.grupo; if (grupo) html += `<div class="menu-grupo">${esc(grupo)}</div>`; }
     html += `<a class="menu-item" href="#/${s.id}" data-id="${s.id}"><span class="menu-icono">${iconoMenu(s.id, s.icono)}</span>${esc(s.titulo)}</a>`;
   }
@@ -263,7 +263,7 @@ function navegar() {
   cont.innerHTML = '<div class="vacio">Cargando…</div>';
   cont.scrollTop = 0;
 
-  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad, ascensos: vistaAscensos, revision: vistaRevision, escalafon: vistaEscalafon };
+  const vistas = { inicio: vistaInicio, actividad: vistaActividad, perfil: vistaPerfil, reglamento: vistaReglamento, calendario: vistaCalendario, miembros: vistaMiembros, usuarios: vistaUsuarios, foro: vistaForo, inactividad: vistaInactividad, ascensos: vistaAscensos, revision: vistaRevision, escalafon: vistaEscalafon, anuncios: vistaAnuncios };
   const vista = CATEGORIAS[sec.id] ? () => vistaRegistro(sec.id) : vistas[sec.id];
   Promise.resolve(vista(cont)).catch(e => { cont.innerHTML = `<div class="vacio">No se pudo cargar: ${esc(e.message)}</div>`; fallo(e); });
 }
@@ -271,50 +271,82 @@ function navegar() {
 /* ============================================================ INICIO */
 async function vistaInicio(cont) {
   const hoy = new Date();
-  // Solo lo necesario: personas, eventos próximos y quiénes figuran en las planillas de BU (no todos los registros del año)
-  const [miembros, eventos, plantelBU] = await Promise.all([
+  const [personas, eventos, anuncios, tipos, ultimas, tryBU] = await Promise.all([
     api.listarPersonas(),
     api.listarEventos(fechaISO(hoy), fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30))),
-    api.listarPlantelBU(),
+    api.listarAnuncios(3),
+    api.listarTiposActividad(),
+    api.ultimasActividades(3),
+    api.ultimasActividades(1, 'try_bu'),
   ]);
+  const porId = new Map(personas.map(m => [m.id, m]));
+  const quien = id => { const x = porId.get(id); return x ? `${x.grado} ${x.nombre}` : 'Desconocido'; };
+  const nombres = ids => ids?.length ? ids.map(id => esc(quien(id))).join(', ') : '<span class="tenue">—</span>';
+  const tipoNombre = id => tipos.find(t => t.id === id)?.nombre || id;
+  const fechaCorta = (f, hora) => { const d = new Date(f + 'T00:00:00');
+    return `${DIAS[(d.getDay() + 6) % 7]} ${d.getDate()}/${d.getMonth() + 1}${hora ? ' · ' + esc(hora) : ''}`; };
 
-  // Cantidad actual de miembros por grupo (Blackout Unit: quienes figuran en la última planilla de BU cargada)
-  const actuales = miembros.filter(m => m.activo);
-  const ultimaBU = plantelBU.reduce((u, r) => Math.max(u, r.anio * 100 + r.mes), 0);
-  const idsBU = new Set(plantelBU.filter(r => r.anio * 100 + r.mes === ultimaBU).map(r => r.miembro_id));
-  const grupos = [
-    { titulo: 'Comandantes',    ir: 'oficiales',    cant: actuales.filter(m => m.categoria === 'comandantes').length },
-    { titulo: 'Oficiales',      ir: 'oficiales',    cant: actuales.filter(m => m.categoria === 'oficiales').length },
-    { titulo: 'Suboficiales',   ir: 'suboficiales', cant: actuales.filter(m => m.categoria === 'suboficiales').length },
-    { titulo: 'Élites',         ir: 'elites',       cant: actuales.filter(m => CATEGORIAS.elites.filtro(m)).length },
-    { titulo: 'Blackout Unit',  ir: 'bu',           cant: ultimaBU ? actuales.filter(m => idsBU.has(m.id)).length : 0,
-      nota: ultimaBU ? `según la planilla de ${MESES[ultimaBU % 100 - 1].toLowerCase()} ${Math.floor(ultimaBU / 100)}` : '' },
-  ];
-  const tarjetas = grupos.map(g => `<div class="tarjeta">
-      <div class="dato-grande">${g.cant}</div>
-      <div class="dato-etiqueta">${esc(g.titulo)}</div>
-      ${g.nota ? `<div class="dato-etiqueta" style="margin-top:6px;font-size:11.5px">${esc(g.nota)}</div>` : ''}
-    </div>`).join('');
+  const htmlAnuncios = anuncios.length ? anuncios.map(a => `
+    <a class="inicio-anuncio" href="#/anuncios">
+      <div class="inicio-anuncio-cab"><strong>${a.fijado ? '📌 ' : ''}${esc(a.titulo)}</strong>
+        <span class="dato-etiqueta">${esc(a.autor_nombre || '')}${a.autor_nombre ? ' · ' : ''}${new Date(a.creado_en).toLocaleDateString('es-AR')}</span></div>
+      <p class="inicio-anuncio-txt">${esc(a.cuerpo)}</p>
+    </a>`).join('') : '<div class="vacio">No hay anuncios.</div>';
 
-  const listaEventos = eventos.length ? `<ul class="lista-simple">${eventos.slice(0, 8).map(e => {
-    const d = new Date(e.fecha + 'T00:00:00');
-    return `<li><span class="punto" style="background:${colorTipo(e.tipo)}"></span>
-      <div style="flex:1;min-width:0"><strong>${esc(e.titulo)}</strong><div class="dato-etiqueta">${esc(e.tipo || 'Evento')}</div></div>
-      <span class="dato-etiqueta">${DIAS[(d.getDay() + 6) % 7]} ${d.getDate()}/${d.getMonth() + 1}${e.hora ? ' · ' + esc(e.hora) : ''}</span></li>`;
-  }).join('')}</ul>` : '<div class="vacio">No hay eventos en los próximos 30 días.</div>';
+  const htmlEventos = eventos.length ? `<ul class="lista-simple inicio-eventos">${eventos.slice(0, 12).map(e => `
+    <li><span class="punto" style="background:${colorTipo(e.tipo)}"></span>
+      <div style="flex:1;min-width:0"><strong>${esc(e.titulo)}</strong><div class="dato-etiqueta">${esc(e.tipo || 'Actividad')}</div></div>
+      <span class="inicio-cuando">${fechaCorta(e.fecha, e.hora)}</span></li>`).join('')}</ul>`
+    : '<div class="vacio">No hay actividades programadas en los próximos 30 días.</div>';
 
-  const visibles = miembros.filter(m => m.activo && !CATEGORIAS_MIEMBRO[m.categoria]?.oculta).length;
+  const htmlUltimas = ultimas.length ? `<ul class="inicio-acts">${ultimas.map(a => `
+    <li>
+      <div class="inicio-act-cab">${etiquetaTipoAct(a.tipo, tipoNombre(a.tipo) + (a.especializacion ? ' · ' + (ESPECIALIZACIONES_TRY[a.especializacion] || a.especializacion) : ''))}
+        <span class="dato-etiqueta">${fechaCorta(a.fecha, a.hora)}</span></div>
+      <div class="inicio-act-quien"><span class="dato-etiqueta">Realizadores</span> ${nombres(a.participantes)}</div>
+      ${a.ayudantes?.length ? `<div class="inicio-act-quien"><span class="dato-etiqueta">Ayudantes</span> ${nombres(a.ayudantes)}</div>` : ''}
+    </li>`).join('')}</ul>` : '<div class="vacio">Todavía no hay actividades registradas.</div>';
+
+  const t = tryBU[0];
+  const htmlTry = t ? `
+    <div class="inicio-try-fecha">${new Date(t.fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${t.hora ? ` · ${esc(t.hora)}` : ''}</div>
+    <div class="inicio-act-quien"><span class="dato-etiqueta">Organizadores</span> ${nombres(t.participantes)}</div>
+    ${t.ayudantes?.length ? `<div class="inicio-act-quien"><span class="dato-etiqueta">Ayudantes</span> ${nombres(t.ayudantes)}</div>` : ''}`
+    : '<div class="vacio">Todavía no hay ninguna Try BU registrada.</div>';
+
   cont.innerHTML = `
-    <p style="margin:0 0 20px;color:var(--texto-2)">Hola, <strong style="color:var(--texto)">${esc(estado.perfil.nombre)}</strong>. Elegí una sección del menú o un acceso rápido.</p>
-    <div class="rejilla">${tarjetas}</div>
-    <div class="rejilla" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:16px">
-      <div class="tarjeta"><h3>Próximos eventos</h3>${listaEventos}</div>
-      <div class="tarjeta"><h3>Accesos rápidos</h3><ul class="lista-simple">
-        <li><a class="menu-item" style="color:var(--texto)" href="#/calendario"><span class="menu-icono">${iconoMenu('calendario')}</span>Calendario</a></li>
-        <li><a class="menu-item" style="color:var(--texto)" href="#/reglamento"><span class="menu-icono">${iconoMenu('reglamento')}</span>Reglamento del calendario</a></li>
-        <li><a class="menu-item" style="color:var(--texto)" href="#/miembros"><span class="menu-icono">${iconoMenu('miembros')}</span>Miembros de la legión (${visibles})</a></li>
-      </ul></div>
+    <p style="margin:0 0 20px;color:var(--texto-2)">Hola, <strong style="color:var(--texto)">${esc(estado.perfil.nombre)}</strong>.</p>
+    <div class="inicio-rejilla">
+      <section class="tarjeta inicio-bloque">
+        <div class="inicio-cab"><h3>Anuncios</h3><a class="btn chico" href="#/anuncios">Ver todos los anuncios →</a></div>
+        ${htmlAnuncios}
+      </section>
+      <section class="tarjeta inicio-bloque inicio-try">
+        <div class="inicio-cab"><h3>Última Try BU</h3></div>
+        ${htmlTry}
+      </section>
+      <section class="tarjeta inicio-bloque">
+        <div class="inicio-cab"><h3>Próximas actividades</h3><a class="btn chico" href="#/calendario">Calendario →</a></div>
+        ${htmlEventos}
+      </section>
+      <section class="tarjeta inicio-bloque">
+        <div class="inicio-cab"><h3>Últimas actividades registradas</h3></div>
+        ${htmlUltimas}
+      </section>
     </div>`;
+}
+
+/* ============================================================ ANUNCIOS (solo se entra desde el Inicio) */
+async function vistaAnuncios(cont) {
+  const anuncios = await api.listarAnuncios();
+  cont.innerHTML = `
+    <div class="herramientas"><a class="btn chico" href="#/inicio">← Inicio</a></div>
+    <div class="anuncios">${anuncios.length ? anuncios.map(a => `
+      <article class="tarjeta anuncio">
+        <header><h2>${a.fijado ? '<span title="Fijado">📌</span> ' : ''}${esc(a.titulo)}</h2>
+          <span class="dato-etiqueta">${esc(a.autor_nombre || '')}${a.autor_nombre ? ' · ' : ''}${new Date(a.creado_en).toLocaleString('es-AR', { dateStyle: 'long', timeStyle: 'short' })}</span></header>
+        <div class="anuncio-cuerpo">${textoForo(a.cuerpo)}</div>
+      </article>`).join('') : '<div class="vacio">No hay anuncios.</div>'}</div>`;
 }
 
 /* ------------------------------------------------------------ ancho de columnas de las planillas
@@ -1278,7 +1310,13 @@ async function vistaMiembros(cont) {
   const editable = puedeEditar();
   const opcionesCat = Object.entries(CATS_VISTA).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('');
   const opcionesCatForm = Object.entries(CATEGORIAS_MIEMBRO).map(([k, c]) => `<option value="${k}">${esc(c.titulo)}</option>`).join('');
-  const nCols = editable ? 9 : 8;
+  // Cambiar rango: Comandantes en adelante. Un Comandante solo a quienes están por debajo de Comandante;
+  // de Comandante en adelante, solo un Mariscal (la base lo vuelve a controlar).
+  const miRango = estado.perfil.rango;
+  const veRango = miRango >= 6;
+  const esCMD = g => categoriaDeRango(g) === 'comandantes';
+  const puedoCambiarRango = m => veRango && (m.id !== estado.perfil.miembro_id || miRango >= 8) && (miRango >= 7 || !esCMD(m.grado));
+  const nCols = 8 + (editable ? 1 : 0) + (veRango ? 1 : 0);
 
   cont.innerHTML = `
     <div class="rejilla" id="resumen-miembros" style="margin-bottom:18px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
@@ -1291,7 +1329,7 @@ async function vistaMiembros(cont) {
     </div>
     <div class="envoltorio-tabla"><table class="datos tabla-miembros"><thead><tr>
       <th>Rango</th><th data-ancho-min="150" data-sin-cortar>Nombre clon</th><th data-ancho-min="170" data-sin-cortar>Nombre Jedi</th><th>Icónico</th>
-      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th>${editable ? '<th></th>' : ''}
+      <th>Categoría</th><th>Élite</th><th>SteamID</th><th>Discord</th>${veRango ? '<th>Rango</th>' : ''}${editable ? '<th></th>' : ''}
     </tr></thead><tbody id="cuerpo-miembros"></tbody></table></div>
     <p class="ayuda">Clic en un SteamID o Discord para copiarlo · el SteamID64 abre el perfil de Steam · dentro de cada categoría se ordena por rango.</p>`;
 
@@ -1306,6 +1344,7 @@ async function vistaMiembros(cont) {
       <td class="steam">${m.steam_id ? `<button class="copiar mono" data-copiar="${esc(m.steam_id)}" data-tipo="SteamID" title="Copiar SteamID">${esc(m.steam_id)}</button>` : '<span class="tenue">—</span>'}
         ${m.steam_id64 ? `<a class="sub mono" href="https://steamcommunity.com/profiles/${esc(m.steam_id64)}" target="_blank" rel="noopener noreferrer">${esc(m.steam_id64)}</a>` : ''}</td>
       <td>${m.discord_id ? `<button class="copiar mono" data-copiar="${esc(m.discord_id)}" data-tipo="Discord ID" title="Copiar Discord ID">${esc(m.discord_id)}</button>` : '<span class="tenue">—</span>'}</td>
+      ${veRango ? `<td>${puedoCambiarRango(m) ? `<button class="btn chico" data-rango-de="${m.id}" title="Ascender o cambiar el rango">⇅ Cambiar rango</button>` : ''}</td>` : ''}
       ${editable ? `<td class="acciones"><button class="btn chico" data-editar="${m.id}">Editar</button>
         <button class="btn chico peligro" data-borrar="${m.id}">Borrar</button></td>` : ''}
     </tr>`;
@@ -1443,7 +1482,41 @@ async function vistaMiembros(cont) {
   };
   $('#btn-csv-miembros').onclick = exportarCSV;
   if (editable) $('#btn-nuevo').onclick = () => formulario();
+  function cambiarRango(m) {
+    const lista = (RANGO_MAYOR_PRIMERO ? [...RANGOS_LEGION].reverse() : [...RANGOS_LEGION])
+      .filter(r => esDeLegion({ grado: r, elite: m.elite }) && (miRango >= 7 || !esCMD(r)));
+    const actual = normRango(m.grado);
+    abrirModal(`Cambiar rango · ${m.grado} ${m.nombre}`, `
+      <form id="form-rango">
+        <label class="campo"><span>Nuevo rango</span><select name="grado">${lista.map(r =>
+          `<option value="${esc(r)}" ${normRango(r) === actual ? 'selected' : ''}>${esc(r)}${normRango(r) === actual ? ' (actual)' : ''}</option>`).join('')}</select></label>
+        <p class="ayuda" id="rango-cambio" style="margin:-4px 0 14px"></p>
+        ${miRango < 7 ? '<p class="ayuda" style="margin:0 0 14px">El rango de Comandante en adelante solo lo puede cambiar un Mariscal.</p>' : ''}
+        <div class="modal-pie"><button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn primario">Guardar</button></div>
+      </form>`, c => {
+      const f = $('#form-rango', c);
+      const explicar = () => {
+        const d = indiceRango(f.grado.value) - indiceRango(m.grado);
+        $('#rango-cambio', c).textContent = !d ? 'Es el rango que ya tiene.' : `${d > 0 ? 'Ascenso' : 'Descenso'}: ${m.grado} → ${f.grado.value}`;
+      };
+      f.grado.onchange = explicar; explicar();
+      $('[data-cancelar]', c).onclick = cerrarModal;
+      f.onsubmit = async ev => {
+        ev.preventDefault();
+        if (normRango(f.grado.value) === actual) { cerrarModal(); return; }
+        try {
+          const g = await api.cambiarGrado(m.id, f.grado.value);
+          todos = todos.map(x => x.id === g.id ? g : x);
+          miembros = ordenarMiembros(todos.filter(esDeLegion));
+          cerrarModal(); pintar(); aviso(`${m.nombre}: ${m.grado} → ${g.grado}`);
+        } catch (e) { fallo(e); }
+      };
+    });
+  }
+
   $('#cuerpo-miembros').onclick = async ev => {
+    const cr = ev.target.closest('[data-rango-de]');
+    if (cr) { cambiarRango(miembros.find(m => m.id == cr.dataset.rangoDe)); return; }
     const cp = ev.target.closest('[data-copiar]');
     if (cp) {
       try { await navigator.clipboard.writeText(cp.dataset.copiar); aviso(`${cp.dataset.tipo || 'Dato'} copiado.`); } catch { aviso('No se pudo copiar.', 'error'); }
@@ -2010,6 +2083,7 @@ const TOTALES_PERFIL = [
   { titulo: 'Actividad total', ayuda: 'Act. total de Oficiales y Comandantes / Suboficiales', calc: { oficiales: 'act_total', suboficiales: 'act_total' } },
   { titulo: 'Entrenamientos', cols: { oficiales: ['ents_21', 'ents_esp', 'ents_bu'], suboficiales: ['ents_21', 'ents_esp', 'ents_bu'], cabos: ['ents'], soldados: ['ents'] } },
   { titulo: 'Roles de PJ', cols: { oficiales: ['roles_pj'], suboficiales: ['roles_pj'], cabos: ['roles_pj'], soldados: ['roles_pj'] } },
+  { titulo: 'Miniroles', cols: { oficiales: ['minirol'], suboficiales: ['minirol'] } },
   { titulo: 'Trys', cols: { oficiales: ['try_bu', 'try_esp', 'try_21'], suboficiales: ['try_esp', 'try_21'] } },
   { titulo: 'Capacitaciones', cols: { elites: ['n_cap'], bu: ['cap_ent', 'cap_part'], cabos: ['caps'], soldados: ['caps'] } },
   { titulo: 'Actividad BU', calc: { bu: 'total' } },
@@ -2059,22 +2133,18 @@ async function vistaPerfil(cont) {
       <div class="perfil-principal">
         <div class="perfil-nombre">${esc(m.grado)} ${esc(m.nombre)}
           ${tieneIconico(m) ? `<span class="etiqueta admin">${esc(m.nombre_iconico)}</span>` : ''}
-          ${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : ''}
-          <span class="etiqueta ${m.activo ? 'admin' : ''}">${m.activo ? 'Activo' : 'Inactivo'}</span></div>
+          ${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : ''}</div>
         <div class="perfil-datos">
           ${dato('Categoría', esc(tituloCat(m.categoria)))}
           ${dato('Discord', m.discord_id ? `<span class="mono">${esc(m.discord_id)}</span>` : '')}
           ${dato('Ingreso', m.fecha_ingreso ? new Date(m.fecha_ingreso + 'T00:00:00').toLocaleDateString('es-AR') : '')}
           ${dato('Cuenta vinculada', cuenta ? esc(cuenta.nombre) : '')}
+          ${m.id === estado.perfil.miembro_id ? `<div class="perfil-modelo"><span class="dato-etiqueta" title="El retrato que se ve en el Escalafón militar, en tu perfil y en el menú">Modelo del escalafón</span>
+            <div class="modelo-opciones compacto" id="modelo-opciones"></div></div>` : ''}
         </div>
       </div>
       <a class="btn chico" href="#/miembros">← Miembros</a>
     </div>
-    ${m.id === estado.perfil.miembro_id ? `<section class="tarjeta modelo-elegir">
-      <div><h3>Modelo del escalafón</h3>
-        <p class="tenue">Es el retrato que se ve en el Escalafón militar, en tu perfil y en el menú.${modelosDe(m, idsBU).length === 1 ? ' Por ahora solo tenés disponible el modelo GM.' : ''}</p></div>
-      <div class="modelo-opciones" id="modelo-opciones"></div>
-    </section>` : ''}
 
     <div class="herramientas" style="margin-top:18px">
       <h3 style="margin:0;font-size:15px">Resumen del mes</h3>
@@ -2712,7 +2782,7 @@ async function vistaEscalafon(cont) {
           ${dato('Nombre icónico', tieneIconico(m) ? m.nombre_iconico : '')}
           ${dato('Nombre Jedi', m.nombre_jedi)}
           ${dato('Especialización', especializacionEsc(m, nivel.todas))}
-          ${dato('Ingreso a la legión', '')}
+          ${dato('Ingreso a la legión', m.fecha_ingreso ? new Date(m.fecha_ingreso + 'T00:00:00').toLocaleDateString('es-AR') : '')}
         </dl>
       </div>
     </article>`;
@@ -2721,7 +2791,6 @@ async function vistaEscalafon(cont) {
   cont.innerHTML = `
     <div class="esc-layout">
       <div class="esc-principal">
-        <div class="esc-indice">${niveles.map((n, i) => `<a href="#" data-ir="${i}">${esc(n.titulo)} <b>${n.lista.length}</b></a>`).join('')}</div>
         <div class="esc-niveles">
           ${niveles.map((n, i) => `
             <section class="esc-nivel" id="esc-nivel-${i}">
@@ -2735,11 +2804,6 @@ async function vistaEscalafon(cont) {
         <p class="tenue">Próximamente.</p>
       </aside>
     </div>`;
-  $('.esc-indice', cont).onclick = ev => {
-    const a = ev.target.closest('[data-ir]'); if (!a) return;
-    ev.preventDefault();
-    $(`#esc-nivel-${a.dataset.ir}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 }
 
 /* ============================================================ REVISIÓN DE ACTIVIDAD (Suboficiales, Oficiales y Comandantes) */

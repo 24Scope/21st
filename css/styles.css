@@ -815,7 +815,6 @@ a.btn.primario { color: #fff; }
 .esc-retrato { flex: none; width: 72px; height: 72px; border-radius: 12px; overflow: hidden; position: relative;
   background: radial-gradient(circle at 50% 35%, #3a3d5c, #1c1d2e 75%); border: 1px solid var(--borde-fuerte); }
 .esc-retrato img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.esc-retrato.iconico { border-color: var(--acento); box-shadow: 0 0 12px var(--brillo); }
 .esc-retrato.bu { background: radial-gradient(circle at 50% 35%, #3b3140, #19181f 75%); }
 .esc-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 6px; }
 .esc-titulo { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
@@ -888,3 +887,41 @@ body.ordenando .barra-superior::after { width: 100%; }
 .confuso-cab { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .confuso-acciones { display: flex; gap: 8px; margin-top: 8px; }
 .confuso-acciones select { flex: 1; min-width: 0; height: 32px; }
+
+/* Inicio */
+.inicio-rejilla { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+.inicio-bloque h3 { margin: 0; }
+.inicio-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.inicio-anuncio { display: block; text-decoration: none; color: var(--texto); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--borde);
+  background: var(--superficie-2); transition: border-color .15s; }
+.inicio-anuncio + .inicio-anuncio { margin-top: 10px; }
+.inicio-anuncio:hover { border-color: var(--acento); }
+.inicio-anuncio-cab { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.inicio-anuncio-txt { margin: 6px 0 0; color: var(--texto-2); font-size: 13.5px; white-space: pre-line;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.inicio-eventos li { padding: 11px 0; font-size: 15px; }
+.inicio-eventos .punto { width: 10px; height: 10px; }
+.inicio-cuando { color: var(--texto-2); font-size: 13.5px; white-space: nowrap; }
+.inicio-acts { list-style: none; margin: 0; padding: 0; }
+.inicio-acts li { padding: 10px 0; border-bottom: 1px solid var(--borde); }
+.inicio-acts li:last-child { border-bottom: 0; }
+.inicio-act-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
+.inicio-act-quien { font-size: 13.5px; margin-top: 3px; }
+.inicio-act-quien .dato-etiqueta { display: inline-block; min-width: 96px; }
+.inicio-try { border-color: rgba(20, 184, 166, .45); }
+.inicio-try-fecha { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.inicio-try-fecha::first-letter { text-transform: uppercase; }
+@media (max-width: 1000px) { .inicio-rejilla { grid-template-columns: 1fr; } }
+
+/* Anuncios */
+.anuncios { display: grid; gap: 16px; max-width: 900px; }
+.anuncio header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--borde); padding-bottom: 10px; margin-bottom: 12px; }
+.anuncio h2 { margin: 0; font-size: 19px; }
+.anuncio-cuerpo { white-space: pre-line; line-height: 1.6; color: var(--texto); }
+
+/* Perfil: modelo del escalafón dentro de la cabecera */
+.perfil-modelo { grid-column: 1 / -1; }
+.modelo-opciones.compacto { gap: 6px; margin-top: 4px; }
+.modelo-opciones.compacto .modelo-op { flex-direction: row; width: auto; padding: 3px 10px 3px 3px; gap: 8px; border-radius: 999px; font-size: 12.5px; }
+.modelo-opciones.compacto .modelo-img { width: 28px; height: 28px; border-radius: 999px; }
