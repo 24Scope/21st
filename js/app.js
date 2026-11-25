@@ -2647,14 +2647,16 @@ const RETRATOS_ALIAS = { pluto: 'pluto_p2', ridge: 'ridge_p2' };   // icónicos 
 const RETRATOS_ICONICOS = ['ki_adi_mundi', 'yarael_poof', 'mace_windu', 'pluto_p2', 'ridge_p2', 'bacara', 'blackout', 'bullseye', 'contrail', 'epsilon', 'etal', 'finn', 'griggs', 'jet', 'keller',
   'levet', 'mark', 'mustang', 'racetrack', 'rancor_hammer', 'shade', 'sixseed', 'spark', 'stance', 'thruster'];
 const NIVELES_ESCALAFON = [
-  { titulo: 'Mariscales',  rangos: ['MRL'],                         tam: 'xl' },
-  { titulo: 'Comandantes', rangos: ['CMD B', 'CMDM', 'CMD1', 'CMD'], tam: 'l' },
-  { titulo: 'Capitanes',   rangos: ['CPTM', 'CPT1', 'CPT'],          tam: 'l' },
-  { titulo: 'Tenientes',   rangos: ['TTE1', 'TTE2', 'TTE', 'STTE'],  tam: 'm' },
-  { titulo: 'Sargentos',   rangos: ['SGTM', 'SGT1', 'SGT2', 'SGT'],  tam: 'm' },
+  { titulo: 'Mariscales',  rangos: ['MRL'],                         todas: true },
+  { titulo: 'Comandantes', rangos: ['CMD B', 'CMDM', 'CMD1', 'CMD'], todas: true },
+  { titulo: 'Capitanes',   rangos: ['CPTM', 'CPT1', 'CPT'] },
+  { titulo: 'Tenientes',   rangos: ['TTE1', 'TTE2', 'TTE', 'STTE'] },
+  { titulo: 'Sargentos',   rangos: ['SGTM', 'SGT1', 'SGT2', 'SGT'] },
   // Élites que no llegan a Sargento (los de Sargento en adelante ya están en su nivel), como en Miembros de la legión
-  { titulo: 'Élites',      filtro: m => esEliteSinSGT(m),            tam: 'm' },
+  { titulo: 'Élites',      filtro: m => esEliteSinSGT(m) },
 ];
+// Especialización: de Comandante en adelante, todas (y ARC si lo tiene); el resto, su élite (asalto, apoyo o reconocimiento)
+const especializacionEsc = (m, todas) => todas ? 'Todas' + (m.elite === 'ARC' ? ' · ARC' : '') : (ELITES[m.elite] || '');
 // Modelos que puede usar un miembro: su icónico (si tiene modelo), el de la BU (si está en la BU) y siempre el GM
 function modelosDe(m, idsBU) {
   const lista = [];
@@ -2694,30 +2696,44 @@ async function vistaEscalafon(cont) {
     return { ...n, lista: activos.filter(entra).sort(compararRango) };
   }).filter(n => n.lista.length);
 
-  const tarjeta = (m, tam) => {
+  const dato = (etiqueta, valor) => `<div><dt>${etiqueta}</dt><dd>${valor ? esc(valor) : '<span class="tenue">—</span>'}</dd></div>`;
+  const tarjeta = (m, nivel) => {
     const r = retratoDe(m, idsBU);
-    return `<article class="esc-card ${tam}" data-mid="${m.id}" data-rango="${esc(normRango(m.grado))}">
+    return `<article class="esc-card" data-mid="${m.id}" data-rango="${esc(normRango(m.grado))}">
       <div class="esc-retrato ${r.tipo}"><img src="${r.src}" alt="" loading="lazy" decoding="async" width="256" height="256"></div>
       <div class="esc-info">
-        <span class="esc-grado">${esc(m.grado)}</span>
-        <a class="esc-nombre" href="#/perfil?id=${m.id}" title="${esc(m.nombre)}">${esc(m.nombre)}</a>
-        <div class="esc-tags">
-          ${tieneIconico(m) ? `<span class="esc-tag iconico">${esc(m.nombre_iconico)}</span>` : ''}
-          ${ELITES[m.elite] ? `<span class="esc-tag elite" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : ''}
+        <div class="esc-titulo">
+          <span class="esc-grado">${esc(m.grado)}</span>
+          <a class="esc-nombre" href="#/perfil?id=${m.id}" title="${esc(m.nombre)}">${esc(m.nombre)}</a>
           ${idsBU.has(m.id) ? '<span class="esc-tag bu">BU</span>' : ''}
         </div>
+        <dl class="esc-datos">
+          ${dato('Nombre de clon', m.nombre)}
+          ${dato('Nombre icónico', tieneIconico(m) ? m.nombre_iconico : '')}
+          ${dato('Nombre Jedi', m.nombre_jedi)}
+          ${dato('Especialización', especializacionEsc(m, nivel.todas))}
+          ${dato('Ingreso a la legión', '')}
+        </dl>
       </div>
     </article>`;
   };
 
   cont.innerHTML = `
-    <div class="esc-indice">${niveles.map((n, i) => `<a href="#" data-ir="${i}">${esc(n.titulo)} <b>${n.lista.length}</b></a>`).join('')}</div>
-    <div class="esc-niveles">
-      ${niveles.map((n, i) => `
-        <section class="esc-nivel ${n.tam}" id="esc-nivel-${i}">
-          <header class="esc-cab"><h2>${esc(n.titulo)}</h2><span>${n.lista.length}</span></header>
-          <div class="esc-grilla ${n.tam}">${n.lista.map(m => tarjeta(m, n.tam)).join('')}</div>
-        </section>`).join('')}
+    <div class="esc-layout">
+      <div class="esc-principal">
+        <div class="esc-indice">${niveles.map((n, i) => `<a href="#" data-ir="${i}">${esc(n.titulo)} <b>${n.lista.length}</b></a>`).join('')}</div>
+        <div class="esc-niveles">
+          ${niveles.map((n, i) => `
+            <section class="esc-nivel" id="esc-nivel-${i}">
+              <header class="esc-cab"><h2>${esc(n.titulo)}</h2><span>${n.lista.length}</span></header>
+              <div class="esc-grilla">${n.lista.map(m => tarjeta(m, n)).join('')}</div>
+            </section>`).join('')}
+        </div>
+      </div>
+      <aside class="esc-lateral tarjeta">
+        <h3>Información</h3>
+        <p class="tenue">Próximamente.</p>
+      </aside>
     </div>`;
   $('.esc-indice', cont).onclick = ev => {
     const a = ev.target.closest('[data-ir]'); if (!a) return;
