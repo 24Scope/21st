@@ -1847,14 +1847,21 @@ async function vistaReglamento(cont) {
   let secciones = await api.listarReglamento();
   const editable = puedeEditar();
 
+  // Índice fijo a la izquierda (salta a cada sección) y las normas a la derecha
   cont.innerHTML = `
-    <div class="herramientas">
-      <p style="margin:0;color:var(--texto-2)">Normas del calendario. Las secciones bloqueadas 🔒 no se pueden modificar hasta desbloquearlas.</p>
-      <span class="espacio"></span>
-      ${editable ? '<button class="btn primario" id="btn-seccion">+ Agregar sección</button>' : ''}
-    </div>
-    <div id="lista-reglamento" class="reglamento"></div>`;
+    <div class="regl-layout">
+      <aside class="regl-indice tarjeta">
+        <h3>Secciones</h3>
+        <nav id="regl-indice"></nav>
+        <a class="link-suave regl-cal" href="#/calendario">Ir al calendario →</a>
+        ${editable ? `<button class="btn chico" id="btn-seccion">+ Agregar sección</button>
+          <p class="ayuda" style="margin:0">Las secciones con 🔒 no se pueden editar ni borrar hasta desbloquearlas.</p>` : ''}
+      </aside>
+      <div id="lista-reglamento" class="reglamento"></div>
+    </div>`;
 
+  // "Puntualidad: respetar…" → la etiqueta en negrita
+  const conEtiqueta = t => { const m = /^([^:]{2,40}):\s+(.*)$/.exec(t); return m ? `<strong>${esc(m[1])}:</strong> ${esc(m[2])}` : esc(t); };
   // Texto con formato simple: líneas con "•" o "-" se muestran como viñetas; ``` como bloque de código
   function formatear(texto) {
     const lineas = String(texto || '').split('\n');
@@ -1866,9 +1873,10 @@ async function vistaReglamento(cont) {
       }
       if (codigo) { html += esc(l) + '\n'; continue; }
       const vin = /^\s*[•\-–]\s+(.*)/.exec(l);
-      if (vin) { if (!lista) { html += '<ul>'; lista = true; } html += `<li>${esc(vin[1])}</li>`; continue; }
+      if (vin) { if (!lista) { html += '<ul>'; lista = true; } html += `<li>${conEtiqueta(vin[1])}</li>`; continue; }
       if (lista) { html += '</ul>'; lista = false; }
-      html += l.trim() ? `<p>${esc(l)}</p>` : '';
+      const nota = /^(Ejemplo|Importante|Metas grupales)\s*:\s*(.*)$/i.exec(l.trim());
+      html += !l.trim() ? '' : nota ? `<p class="regl-nota"><strong>${esc(nota[1])}:</strong> ${esc(nota[2])}</p>` : `<p>${esc(l)}</p>`;
     }
     if (lista) html += '</ul>';
     if (codigo) html += '</pre>';
@@ -1876,21 +1884,27 @@ async function vistaReglamento(cont) {
   }
 
   function pintar() {
-    $('#lista-reglamento').innerHTML = secciones.length ? secciones.map(s => `
-      <section class="tarjeta seccion-reglamento ${s.bloqueado ? 'bloqueada' : ''}" data-id="${s.id}">
+    $('#regl-indice').innerHTML = secciones.map((s, i) => `<a href="#" data-ir="${s.id}"><span class="regl-n">${i + 1}</span>${esc(s.datos?.titulo || 'Sin título')}</a>`).join('');
+    $('#lista-reglamento').innerHTML = secciones.length ? secciones.map((s, i) => `
+      <section class="tarjeta seccion-reglamento ${s.bloqueado ? 'bloqueada' : ''}" data-id="${s.id}" id="regl-${s.id}">
         <header>
-          <h3>${esc(s.datos?.titulo || 'Sin título')}${s.bloqueado ? ' <span title="Bloqueada">🔒</span>' : ''}</h3>
-          ${editable ? `<div class="acciones">
-            <button class="btn chico" data-subir title="Subir">↑</button>
-            <button class="btn chico" data-bajar title="Bajar">↓</button>
-            <button class="btn chico" data-bloq>${s.bloqueado ? '🔓 Desbloquear' : '🔒 Bloquear'}</button>
+          <h3><span class="regl-n">${i + 1}</span>${esc(s.datos?.titulo || 'Sin título')}${s.bloqueado ? ' <span class="regl-candado" title="Bloqueada">🔒</span>' : ''}</h3>
+          ${editable ? `<div class="regl-acciones">
+            <button class="btn chico" data-subir title="Subir" ${i === 0 ? 'disabled' : ''}>↑</button>
+            <button class="btn chico" data-bajar title="Bajar" ${i === secciones.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn chico" data-bloq title="${s.bloqueado ? 'Desbloquear' : 'Bloquear'}">${s.bloqueado ? '🔓' : '🔒'}</button>
             <button class="btn chico" data-editar ${s.bloqueado ? 'disabled' : ''}>Editar</button>
-            <button class="btn chico peligro" data-borrar ${s.bloqueado ? 'disabled' : ''}>Borrar</button>
+            <button class="btn chico peligro" data-borrar title="Borrar" ${s.bloqueado ? 'disabled' : ''}>✕</button>
           </div>` : ''}
         </header>
         <div class="texto-reglamento">${formatear(s.datos?.texto)}</div>
       </section>`).join('') : '<div class="vacio">Todavía no hay secciones en el reglamento.</div>';
   }
+  $('#regl-indice').onclick = ev => {
+    const a = ev.target.closest('[data-ir]'); if (!a) return;
+    ev.preventDefault();
+    $(`#regl-${a.dataset.ir}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   function editar(s = { datos: { titulo: '', texto: '' } }) {
     abrirModal(s.id ? 'Editar sección' : 'Nueva sección', `

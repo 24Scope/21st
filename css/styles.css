@@ -1051,3 +1051,31 @@ body.ordenando .barra-superior::after { width: 100%; }
 .cal-dia.puede:hover .cal-mas { text-decoration: underline; }
 @media (max-width: 860px) { .cal-dia { height: 84px; } .cal-ev-linea .cal-ev-tipo, .cal-ev-org { display: none; } }
 .cal-ev-linea { flex-wrap: wrap; column-gap: 6px; row-gap: 0; } .cal-ev-tipo { flex: 0 0 auto; max-width: 100%; }
+
+/* Reglamento del calendario: índice a la izquierda, normas a la derecha */
+.regl-layout { display: grid; grid-template-columns: 270px minmax(0, 880px); gap: 20px; align-items: start; }
+.regl-indice { position: sticky; top: 0; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.regl-indice h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--texto-2); }
+.regl-indice nav { display: flex; flex-direction: column; gap: 2px; }
+.regl-indice nav a { display: flex; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 8px; color: var(--texto); text-decoration: none; font-size: 13.5px; line-height: 1.35; }
+.regl-indice nav a:hover { background: var(--superficie-2); color: var(--acento-texto); }
+.regl-cal { padding: 2px 8px; }
+.regl-n { flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; border-radius: 6px; font-size: 11.5px; font-weight: 700;
+  color: var(--acento-texto); background: var(--acento-suave); margin-right: 8px; }
+.regl-indice nav .regl-n { margin-right: 0; }
+.reglamento { display: grid; gap: 14px; }
+.seccion-reglamento { padding: 16px 20px; scroll-margin-top: 12px; border-left: 3px solid var(--acento); }
+.seccion-reglamento header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.seccion-reglamento h3 { margin: 0; font-size: 16px; display: flex; align-items: center; }
+.regl-candado { font-size: 13px; margin-left: 6px; }
+.regl-acciones { display: flex; gap: 4px; opacity: .45; transition: opacity .15s; }
+.seccion-reglamento:hover .regl-acciones, .regl-acciones:focus-within { opacity: 1; }
+.texto-reglamento { line-height: 1.6; font-size: 14px; color: var(--texto); }
+.texto-reglamento p { margin: 0 0 8px; }
+.texto-reglamento ul { margin: 4px 0 10px; padding: 0; list-style: none; display: grid; gap: 6px; }
+.texto-reglamento li { position: relative; padding: 8px 12px 8px 26px; border-radius: 8px; background: var(--superficie-2); }
+.texto-reglamento li::before { content: ''; position: absolute; left: 11px; top: 16px; width: 6px; height: 6px; border-radius: 50%; background: var(--acento); }
+.texto-reglamento li strong, .regl-nota strong { color: var(--acento-texto); }
+.regl-nota { padding: 8px 12px; border-left: 2px solid var(--borde-fuerte); color: var(--texto-2); }
+.texto-reglamento .bloque-codigo { margin: 6px 0 10px; }
+@media (max-width: 1000px) { .regl-layout { grid-template-columns: 1fr; } .regl-indice { position: static; } }
