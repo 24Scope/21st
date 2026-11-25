@@ -196,16 +196,19 @@ const CATEGORIAS = {
   },
 };
 
-/* 6) TIPOS DE EVENTO DEL CALENDARIO (nombre y color) */
+/* 6) TIPOS DE ACTIVIDAD DEL CALENDARIO (nombre, color y, si el color es claro, texto oscuro)
+   especialidad: true = se puede marcar de qué especialidad es (no es otro tipo de actividad) */
 const TIPOS_EVENTO = [
-  { nombre: 'Entrenamiento',   color: '#3b82f6' },
-  { nombre: 'Rol PJ',          color: '#a855f7' },
-  { nombre: 'Minirol',         color: '#ec4899' },
-  { nombre: 'Capacitación',    color: '#14b8a6' },
-  { nombre: 'Try',             color: '#f59e0b' },
-  { nombre: 'Reunión',         color: '#10b981' },
-  { nombre: 'Evento especial', color: '#ef4444' },
+  { nombre: 'Entrenamiento 21',   color: '#7c3aed' },                       // violeta
+  { nombre: 'Rol de PJ',          color: '#7c3aed' },                       // violeta
+  { nombre: 'Mini rol',           color: '#facc15', texto: '#1c1917' },     // amarillo
+  { nombre: 'Capacitación élite', color: '#38bdf8', texto: '#0c1a26', especialidad: true },   // celeste
+  { nombre: 'Try de subdivisión', color: '#c026d3' },                       // púrpura
+  { nombre: 'Reunión',            color: '#ef4444' },                       // rojo
+  { nombre: 'Misión',             color: '#16a34a' },                       // verde
 ];
+/* Especialidades de la Capacitación élite */
+const ESPECIALIDADES_CAP = { asalto: 'Asalto', apoyo: 'Apoyo', recon: 'Recon' };
 
 /* 7) SECCIONES DEL MENÚ Y RANGO MÍNIMO PARA VERLAS
    De momento todo está en 1 (cualquier cuenta ve todo).

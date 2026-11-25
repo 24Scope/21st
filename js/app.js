@@ -51,6 +51,9 @@ const esAdmin = () => (estado.perfil?.rango ?? 0) >= RANGO_ADMIN;
 const puedeEditar = () => esAdmin() || estado.ajustes.modo_abierto === true;
 const nombreRango = r => RANGOS[r] || `Rango ${r}`;
 const colorTipo = t => (TIPOS_EVENTO.find(x => x.nombre === t) || { color: '#64748b' }).color;
+const textoTipo = t => TIPOS_EVENTO.find(x => x.nombre === t)?.texto || '#fff';
+// Nombre del tipo con la especialidad entre paréntesis, ej.: "Capacitación élite (Asalto)"
+const nombreTipoEv = e => (e.tipo || 'Actividad') + (e.especialidad && ESPECIALIDADES_CAP[e.especialidad] ? ` (${ESPECIALIDADES_CAP[e.especialidad]})` : '');
 const numero = v => { const n = parseFloat(String(v ?? '').replace(',', '.')); return isNaN(n) ? 0 : n; };
 const formatoNum = n => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
 
@@ -295,7 +298,7 @@ async function vistaInicio(cont) {
 
   const htmlEventos = eventos.length ? `<ul class="lista-simple inicio-eventos">${eventos.slice(0, 12).map(e => `
     <li><span class="punto" style="background:${colorTipo(e.tipo)}"></span>
-      <div style="flex:1;min-width:0"><strong>${esc(e.titulo)}</strong><div class="dato-etiqueta">${esc(e.tipo || 'Actividad')}</div></div>
+      <div style="flex:1;min-width:0"><strong>${esc(e.titulo)}</strong><div class="dato-etiqueta">${esc(nombreTipoEv(e))}</div></div>
       <span class="inicio-cuando">${fechaCorta(e.fecha, e.hora)}</span></li>`).join('')}</ul>`
     : '<div class="vacio">No hay actividades programadas en los próximos 30 días.</div>';
 
@@ -1574,9 +1577,10 @@ async function vistaCalendario(cont) {
       const evs = eventos.filter(e => e.fecha === iso);
       return `<div class="cal-dia puede ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso < hoy ? 'pasado' : ''} ${iso === diaSel ? 'elegido' : ''}" data-fecha="${iso}">
         <span class="cal-num">${d.getDate()}</span>
-        ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)}" data-evento="${e.id}"
-            title="${esc((e.hora ? e.hora + ' · ' : '') + e.titulo + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
+        ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)};color:${textoTipo(e.tipo)}" data-evento="${e.id}"
+            title="${esc((e.hora ? e.hora + ' · ' : '') + e.titulo + '\n' + nombreTipoEv(e) + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
             <span class="cal-ev-titulo">${e.hora ? `<span class="cal-ev-hora">${esc(e.hora)}</span> ` : ''}“${esc(e.titulo)}”</span>
+            ${e.especialidad && ESPECIALIDADES_CAP[e.especialidad] ? `<span class="cal-ev-esp">${esc(ESPECIALIDADES_CAP[e.especialidad])}</span>` : ''}
             ${e.descripcion ? `<span class="cal-ev-desc">${esc(resumirDesc(e.descripcion))}</span>` : ''}
             ${(e.organizadores || []).length ? `<span class="cal-ev-org">${esc(e.organizadores.map(id => porIdCal.get(id)?.nombre || '¿?').join(', '))}</span>` : ''}</button>`).join('')}
       </div>`;
@@ -1599,7 +1603,7 @@ async function vistaCalendario(cont) {
         return `<div class="cal-item ${ab ? 'abierto' : ''}" style="--c:${colorTipo(e.tipo)}">
           <button class="cal-item-cab" data-abrir="${e.id}" aria-expanded="${ab}">
             <span class="cal-item-hora">${esc(e.hora || '—')}</span>
-            <span class="cal-item-tit"><strong>${esc(e.titulo)}</strong><small>${esc(e.tipo || 'Actividad')}</small></span>
+            <span class="cal-item-tit"><strong>${esc(e.titulo)}</strong><small>${esc(nombreTipoEv(e))}</small></span>
             <span class="cal-item-flecha">${ab ? '▴' : '▾'}</span>
           </button>
           ${ab ? `<div class="cal-item-det">
@@ -1616,8 +1620,8 @@ async function vistaCalendario(cont) {
   function formulario(e) {
     const soloVer = e.id ? !puedoEditarEv(e) : !editable;
     const opciones = TIPOS_EVENTO.map(t => `<option ${t.nombre === e.tipo ? 'selected' : ''}>${esc(t.nombre)}</option>`).join('');
-    abrirModal(soloVer ? e.titulo : (e.id ? 'Editar evento' : 'Nuevo evento'), soloVer ? `
-      <p class="dato-etiqueta" style="margin:0 0 6px"><i class="punto" style="display:inline-block;background:${colorTipo(e.tipo)}"></i> ${esc(e.tipo)}</p>
+    abrirModal(soloVer ? e.titulo : (e.id ? 'Editar actividad' : 'Nueva actividad'), soloVer ? `
+      <p class="dato-etiqueta" style="margin:0 0 6px"><i class="punto" style="display:inline-block;background:${colorTipo(e.tipo)}"></i> ${esc(nombreTipoEv(e))}</p>
       <p style="margin:0 0 12px"><strong>${esc(new Date(e.fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</strong>${e.hora ? ' · ' + esc(e.hora) : ''}</p>
       <p style="white-space:pre-wrap;line-height:1.5;margin:0 0 12px">${esc(e.descripcion) || '<span style="color:var(--texto-3)">Sin descripción.</span>'}</p>
       ${(e.organizadores || []).length ? `<p style="margin:0 0 16px"><span class="dato-etiqueta">Programado por</span><br>${e.organizadores.map(id => `<span class="chip-acomp">${esc(nombreOrg(id))}</span>`).join(' ')}</p>` : ''}
@@ -1628,7 +1632,12 @@ async function vistaCalendario(cont) {
           <label class="campo"><span>Fecha</span><input name="fecha" type="date" required value="${esc(e.fecha)}" ${e.id ? '' : `min="${fechaISO(new Date())}"`}></label>
           <label class="campo"><span>Hora</span><input name="hora" type="time" ${e.id ? "" : "required"} value="${esc(e.hora)}"></label>
         </div>
-        <label class="campo"><span>Tipo</span><select name="tipo">${opciones}</select></label>
+        <div class="fila-campos">
+          <label class="campo"><span>Tipo</span><select name="tipo">${opciones}</select></label>
+          <label class="campo" id="campo-especialidad"><span>Especialidad <small class="tenue">(opcional)</small></span><select name="especialidad">
+            <option value="">— Sin especificar —</option>${Object.entries(ESPECIALIDADES_CAP).map(([k, t]) => `<option value="${k}" ${e.especialidad === k ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+          </select></label>
+        </div>
         <div class="campo"><span>¿Quiénes la programan? <small class="tenue">(podés sumar a quienes la hacen con vos)</small></span>
           <div class="selector-acomp" id="selector-org">
             <div class="chips-acomp" id="chips-org"></div>
@@ -1682,6 +1691,10 @@ async function vistaCalendario(cont) {
         buscar.focus();
       };
       pintarOrgs();
+      // La especialidad solo aparece en la Capacitación élite
+      const fe = $('#form-evento', c);
+      const verEsp = () => { $('#campo-especialidad', c).hidden = !TIPOS_EVENTO.find(t => t.nombre === fe.tipo.value)?.especialidad; };
+      fe.tipo.onchange = verEsp; verEsp();
       $('#form-evento', c).onsubmit = async ev => {
         ev.preventDefault(); const f = ev.target;
         const cambiaCuando = !e.id || f.fecha.value !== e.fecha || f.hora.value !== e.hora;
@@ -1689,7 +1702,8 @@ async function vistaCalendario(cont) {
           return aviso('No se pueden programar eventos en una fecha u hora que ya pasó.', 'error');
         try {
           await api.guardarEvento({ ...(e.id ? { id: e.id } : {}), titulo: f.titulo.value.trim(), fecha: f.fecha.value,
-            hora: f.hora.value, tipo: f.tipo.value, descripcion: f.descripcion.value.trim(), organizadores: orgs });
+            hora: f.hora.value, tipo: f.tipo.value, descripcion: f.descripcion.value.trim(), organizadores: orgs,
+            especialidad: TIPOS_EVENTO.find(t => t.nombre === f.tipo.value)?.especialidad ? (f.especialidad.value || null) : null });
           cerrarModal(); aviso('Actividad guardada.');
           if (!e.id || f.fecha.value !== e.fecha) diaSel = f.fecha.value;
           await cargar();
