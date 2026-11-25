@@ -950,3 +950,48 @@ body.ordenando .barra-superior::after { width: 100%; }
 .cal-item-acc { display: flex; gap: 8px; }
 .cal-panel-nuevo { margin-top: 4px; }
 @media (max-width: 1100px) { .cal-layout { grid-template-columns: 1fr; } .cal-panel { position: static; max-height: none; } }
+
+/* Revisión de actividad (Comandancia) */
+.rev-periodo { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 8px; }
+.rev-periodo .selector-anio { flex: none; margin-bottom: 4px; }
+.rev-meses { flex: 1; }
+.rev-meses .mes { flex: 1; text-align: center; padding: 8px 6px; }
+.rev-meses .mes.actual { color: #fff; background: linear-gradient(180deg, rgba(179, 86, 110, .35), rgba(90, 42, 54, .25)); border-color: var(--acento); }
+.rev-meses .mes.actual::after { content: ' •'; color: var(--acento-texto); }
+.rev-resumen { font-size: 13px; margin: 6px 0 12px; }
+.rev-layout { grid-template-columns: minmax(280px, 330px) minmax(0, 1fr) minmax(300px, 360px); }
+.rev-item { cursor: pointer; }
+.rev-check { flex: none; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--borde-fuerte); background: transparent;
+  color: #fff; font-size: 12px; font-weight: 800; line-height: 1; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.rev-check:hover { border-color: #22c55e; }
+.rev-check.solo { cursor: default; border-style: dashed; }
+.rev-item.revisado .rev-check { background: #16a34a; border-color: #22c55e; }
+.rev-item.revisado .rev-nombre { color: #4ade80; font-weight: 700; }
+.rev-grupo span { text-transform: none; letter-spacing: 0; }
+.rev-detalle { padding: 16px 18px; }
+.rev-cab { gap: 12px; margin-bottom: 12px; }
+.rev-avatar { width: 44px; height: 44px; font-size: 19px; border-radius: 12px; }
+.rev-titulo { font-size: 17px; }
+.rev-titulo.revisado { color: #4ade80; }
+.rev-total { align-items: center; padding: 12px 16px; border: 1px solid var(--borde); border-radius: 12px; margin-bottom: 10px; }
+.rev-total-izq { display: flex; align-items: center; gap: 10px; }
+.rev-total-izq .dato-etiqueta { line-height: 1.3; }
+.rev-total-tipos { display: grid; gap: 3px; font-size: 13px; color: var(--texto-2); text-align: right; }
+.rev-total-tipos b { color: var(--texto); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.rev-marcar { margin-bottom: 12px; }
+.rev-acts li { cursor: pointer; border-radius: 8px; padding: 8px 8px; border-bottom: 1px solid var(--borde); }
+.rev-acts li:hover { background: var(--superficie-2); }
+.rev-acts li.activa { background: var(--acento-suave); box-shadow: inset 3px 0 0 var(--acento); }
+.rev-acts li.rechazada { opacity: .6; }
+.rev-acts li.rechazada .tag-act { text-decoration: line-through; }
+.rev-act-info { gap: 4px; align-items: flex-start; }
+.rev-panel { padding: 16px 18px; position: sticky; top: 12px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 150px); overflow-y: auto; }
+.rev-panel h3 { margin: 0; }
+.rev-panel-cab { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rev-panel-cab .tag-act { font-size: 13px; padding: 3px 11px; }
+.rev-dato { font-size: 13.5px; display: grid; gap: 3px; }
+.rev-panel-acc { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.txt-ok { color: #4ade80; font-weight: 700; }
+.txt-peligro { color: var(--peligro); }
+@media (max-width: 1300px) { .rev-layout { grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); } .rev-panel { grid-column: 1 / -1; position: static; max-height: none; } }
+@media (max-width: 860px) { .rev-periodo { flex-wrap: wrap; } .rev-meses .mes { flex: none; } }

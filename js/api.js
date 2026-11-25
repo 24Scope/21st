@@ -163,9 +163,17 @@ function crearApiSupabase() {
     // ---- Cambio de rango desde Miembros de la legión (la base controla los permisos)
     async cambiarGrado(miembroId, grado) { return ok(await sb.rpc('cambiar_grado_miembro', { p_miembro: miembroId, p_grado: grado })); },
     // Actividades vigentes (no anuladas) con fecha entre desde y hasta (inclusive)
-    async listarActividadesEntre(desde, hasta) {
-      return ok(await sb.from('actividades').select('*').eq('anulada', false).gte('fecha', desde).lte('fecha', hasta)
-        .order('fecha', { ascending: false }).limit(10000));
+    async listarActividadesEntre(desde, hasta, incluirRechazadas = false) {
+      let q = sb.from('actividades').select('*').gte('fecha', desde).lte('fecha', hasta);
+      q = incluirRechazadas ? q.or('anulada.eq.false,rechazada.eq.true') : q.eq('anulada', false);
+      return ok(await q.order('fecha', { ascending: false }).limit(10000));
+    },
+    // ---- Revisión de actividad (Comandancia)
+    async rechazarActividad(id, motivo) { return ok(await sb.rpc('rechazar_actividad', { p_id: id, p_motivo: motivo || '' })); },
+    async restaurarActividad(id) { return ok(await sb.rpc('restaurar_actividad', { p_id: id })); },
+    async listarRevisados(anio, mes) { return ok(await sb.from('revisiones_actividad').select('*').eq('anio', anio).eq('mes', mes)); },
+    async marcarRevisado(miembroId, anio, mes, revisado) {
+      return ok(await sb.rpc('marcar_revisado', { p_miembro: miembroId, p_anio: anio, p_mes: mes, p_revisado: revisado }));
     },
     async registrarActividad(a) {
       return ok(await sb.rpc('registrar_actividad', { p_tipo: a.tipo, p_fecha: a.fecha, p_hora: a.hora || '',
@@ -431,7 +439,25 @@ function crearApiDemo() {
       Object.assign(m, { grado, categoria: categoriaDeRango(grado) || m.categoria, fecha_rango: new Date().toISOString().slice(0, 10) });
       escribir(db); return { ...m };
     },
-    async listarActividadesEntre() { return []; },
+    async listarActividadesEntre(d, h, incluirRechazadas = false) {
+      return (leer().actividades || []).filter(a => a.fecha >= d && a.fecha <= h && (!a.anulada || (incluirRechazadas && a.rechazada)));
+    },
+    async rechazarActividad(aid, motivo) {
+      const db = leer(); const a = (db.actividades || []).find(x => x.id === aid);
+      Object.assign(a, { anulada: true, rechazada: true, rechazo_motivo: motivo || null, anulada_por: usuarioActual(db).id, anulada_en: new Date().toISOString() });
+      escribir(db); return a;
+    },
+    async restaurarActividad(aid) {
+      const db = leer(); const a = (db.actividades || []).find(x => x.id === aid);
+      Object.assign(a, { anulada: false, rechazada: false, rechazo_motivo: null, anulada_por: null, anulada_en: null });
+      escribir(db); return a;
+    },
+    async listarRevisados(anio, mes) { return (leer().revisados || []).filter(r => r.anio === anio && r.mes === mes); },
+    async marcarRevisado(mid, anio, mes, revisado) {
+      const db = leer(); db.revisados = (db.revisados || []).filter(r => !(r.miembro_id === mid && r.anio === anio && r.mes === mes));
+      if (revisado) db.revisados.push({ miembro_id: mid, anio, mes, revisado_por: usuarioActual(db).id, revisado_en: new Date().toISOString() });
+      escribir(db); return revisado;
+    },
     async listarInactividades() { return (leer().inactividades || []).slice(); },
     async listarInactividadesEntre(d, h) { return (leer().inactividades || []).filter(x => x.desde <= h && x.hasta >= d); },
     async crearInactividad(x) {

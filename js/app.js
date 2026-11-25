@@ -2907,7 +2907,10 @@ const CATS_REVISION = [
   { cat: 'comandantes', titulo: 'Comandantes' },
   { cat: 'oficiales', titulo: 'Oficiales' },
   { cat: 'suboficiales', titulo: 'Suboficiales' },
+  // Élites que no llegan a Sargento: también se les controla la actividad
+  { cat: 'elites', titulo: 'Élites', filtro: m => esEliteSinSGT(m) },
 ];
+const entraEnGrupoRev = (g, m) => g.filtro ? g.filtro(m) : m.categoria === g.cat;
 const etiquetaTipoAct = (id, nombre) => {
   const c = COLOR_TIPO_ACT[id] || '#8a92a1';
   return `<span class="tag-act" style="--c:${c}">${esc(nombre)}</span>`;
@@ -2915,42 +2918,46 @@ const etiquetaTipoAct = (id, nombre) => {
 
 async function vistaRevision(cont) {
   const hoy = new Date();
-  // periodo: { anio, mes } o null = todo el historial
   let periodo = { anio: hoy.getFullYear(), mes: hoy.getMonth() + 1 };
   let seleccion = +(estado.params?.get('id') || 0) || null;
+  let actSel = null;   // actividad abierta en el panel de la derecha
   let filtro = '';
-  let miembros = [], tipos = [], actividades = [], inactividades = [];
+  let miembros = [], tipos = [], actividades = [], inactividades = [], revisados = new Set();
+  const puedeRevisar = estado.perfil.rango >= 6 || esAdmin();
 
   cont.innerHTML = `
-    <div class="herramientas rev-herr">
-      <div class="selector-anio">
-        <button data-mov="-1" aria-label="Mes anterior">‹</button>
-        <span id="rev-mes" style="min-width:150px"></span>
-        <button data-mov="1" aria-label="Mes siguiente">›</button>
+    <div class="rev-periodo">
+      <div class="selector-anio" title="Año">
+        <button data-anio="-1" aria-label="Año anterior">‹</button>
+        <span id="rev-anio"></span>
+        <button data-anio="1" aria-label="Año siguiente">›</button>
       </div>
-      <button class="btn chico" id="rev-actual">Mes actual</button>
-      <button class="btn chico" id="rev-todo">Todo el historial</button>
-      <span class="espacio"></span>
-      <span class="tenue" id="rev-resumen" style="font-size:13px"></span>
+      <div class="meses rev-meses" id="rev-meses">${MESES.map((m, i) => `<button class="mes" data-mes="${i + 1}">${m}</button>`).join('')}</div>
     </div>
+    <p class="tenue rev-resumen" id="rev-resumen"></p>
     <div class="rev-layout">
       <aside class="rev-lista tarjeta">
         <input class="entrada" id="rev-buscar" type="search" placeholder="Buscar por nombre o rango…" autocomplete="off">
         <div id="rev-miembros" class="rev-miembros" tabindex="0" aria-label="Lista de miembros (usá ↑ y ↓)"></div>
       </aside>
       <section class="rev-detalle tarjeta" id="rev-detalle"></section>
+      <aside class="rev-panel tarjeta" id="rev-panel"></aside>
     </div>`;
 
-  const actsDe = id => actividades.filter(a => (a.participantes || []).includes(id));
+  const vigentes = () => actividades.filter(a => !a.anulada);
+  const actsDe = id => vigentes().filter(a => (a.participantes || []).includes(id));
+  const rechazadasDe = id => actividades.filter(a => a.rechazada && (a.participantes || []).includes(id));
   const inactDe = id => inactividades.filter(x => x.miembro_id === id && !x.cancelada);
   const tipoNombre = id => tipos.find(t => t.id === id)?.nombre || id;
+  const nombreAct = a => tipoNombre(a.tipo) + (a.especializacion ? ` · ${ESPECIALIZACIONES_TRY[a.especializacion] || a.especializacion}` : '');
   const etiqueta = id => { const x = miembros.find(m => m.id === id); return x ? `${x.grado} ${x.nombre}` : `#${id}`; };
+  const txtPeriodo = () => `${MESES[periodo.mes - 1]} ${periodo.anio}`;
 
   function visibles() {
     const f = normNombreAsc(filtro);
     return CATS_REVISION.map(g => ({
       ...g,
-      lista: miembros.filter(m => m.categoria === g.cat && (!f || normNombreAsc(`${m.grado} ${m.nombre} ${m.nombre_iconico || ''}`).includes(f)))
+      lista: miembros.filter(m => entraEnGrupoRev(g, m) && (!f || normNombreAsc(`${m.grado} ${m.nombre} ${m.nombre_iconico || ''}`).includes(f)))
         .sort(compararRango),
     })).filter(g => g.lista.length);
   }
@@ -2960,17 +2967,31 @@ async function vistaRevision(cont) {
     const plano = grupos.flatMap(g => g.lista);
     if (!plano.some(m => m.id === seleccion)) seleccion = plano[0]?.id || null;
     $('#rev-miembros').innerHTML = grupos.length ? grupos.map(g => `
-      <div class="rev-grupo">${esc(g.titulo)} <span>${g.lista.length}</span></div>
+      <div class="rev-grupo">${esc(g.titulo)} <span>${g.lista.filter(m => revisados.has(m.id)).length}/${g.lista.length} revisados</span></div>
       ${g.lista.map(m => {
-        const n = actsDe(m.id).length, inac = inactDe(m.id).length;
-        return `<button class="rev-item ${m.id === seleccion ? 'activo' : ''} ${n ? '' : 'cero'}" data-id="${m.id}">
-          <span class="rev-grado">${esc(m.grado)}</span>
+        const n = actsDe(m.id).length, inac = inactDe(m.id).length, rev = revisados.has(m.id);
+        return `<div class="rev-item ${m.id === seleccion ? 'activo' : ''} ${n ? '' : 'cero'} ${rev ? 'revisado' : ''}" data-id="${m.id}" role="button">
+          ${puedeRevisar ? `<button class="rev-check" data-revisar="${m.id}" title="${rev ? 'Desmarcar como revisado' : 'Marcar como revisado'}" aria-pressed="${rev}">${rev ? '✓' : ''}</button>`
+            : `<span class="rev-check solo" title="${rev ? 'Revisado' : 'Sin revisar'}">${rev ? '✓' : ''}</span>`}
+          <span class="rev-grado">${esEliteSinSGT(m) ? esc(m.elite) : esc(m.grado)}</span>
           <span class="rev-nombre" title="${esc(m.nombre)}">${esc(m.nombre)}</span>
-          ${inac ? '<span class="rev-inac" title="Tiene un aviso de inactividad en este período">☾</span>' : ''}
-          <span class="rev-n">${n}</span>
-        </button>`;
+          ${inac ? '<span class="rev-inac" title="Tiene un aviso de inactividad en este mes">☾</span>' : ''}
+          <span class="rev-n" title="Actividades en ${esc(txtPeriodo())}">${n}</span>
+        </div>`;
       }).join('')}`).join('') : '<div class="vacio-chico">Nadie coincide con la búsqueda.</div>';
     $('#rev-miembros .rev-item.activo')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  function filaAct(a, m) {
+    const otros = (a.participantes || []).filter(id => id !== m.id);
+    const rol = a.autor_miembro === m.id ? 'Organizó' : (a.ayudantes || []).includes(m.id) ? 'Ayudó' : 'Participó';
+    const d = new Date(a.fecha + 'T00:00:00');
+    return `<li class="${actSel === a.id ? 'activa' : ''} ${a.rechazada ? 'rechazada' : ''}" data-act="${a.id}" tabindex="0">
+      <span class="rev-fecha">${pad(d.getDate())}/${pad(d.getMonth() + 1)}${a.hora ? `<small>${esc(a.hora)}</small>` : ''}</span>
+      <span class="rev-act-info">${etiquetaTipoAct(a.tipo, nombreAct(a))}
+        <small>${rol}${otros.length ? ` · con ${otros.length} más` : ''}${a.rechazada ? ' · <b class="txt-peligro">Rechazada</b>' : ''}</small></span>
+      ${a.link ? `<a class="btn chico" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer" data-sin-abrir>Ver informe en Discord ↗</a>` : ''}
+    </li>`;
   }
 
   function pintarDetalle() {
@@ -2978,83 +2999,146 @@ async function vistaRevision(cont) {
     const det = $('#rev-detalle');
     if (!m) { det.innerHTML = '<div class="vacio-chico">Elegí a alguien de la lista.</div>'; return; }
     const acts = actsDe(m.id).sort((a, b) => (b.fecha + (b.hora || '')).localeCompare(a.fecha + (a.hora || '')));
-    const organizo = acts.filter(a => a.autor_miembro === m.id).length;
+    const rech = rechazadasDe(m.id);
     const porTipo = {};
     for (const a of acts) porTipo[a.tipo] = (porTipo[a.tipo] || 0) + 1;
     const ordenTipos = Object.keys(porTipo).sort((a, b) => (tipos.find(t => t.id === a)?.orden ?? 99) - (tipos.find(t => t.id === b)?.orden ?? 99));
-    const inacs = inactDe(m.id);
-    const fecha = d => new Date(d + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
-    const txtPeriodo = periodo ? `${MESES[periodo.mes - 1]} ${periodo.anio}` : 'todo el historial';
+    const inacs = inactDe(m.id), rev = revisados.has(m.id);
     det.innerHTML = `
       <div class="rev-cab">
         <div class="perfil-avatar rev-avatar">${esc((m.nombre || '?').charAt(0).toUpperCase())}</div>
         <div style="flex:1;min-width:0">
-          <div class="rev-titulo">${esc(m.grado)} ${esc(m.nombre)}
-            ${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : ''}
-            ${exentoMinimos(m) ? '<span class="etiqueta" title="Comandante en adelante (no ARC): no necesita cumplir mínimos">Exento de mínimos</span>' : ''}</div>
-          <div class="tenue" style="font-size:13px">${esc(tituloCat(m.categoria))}${m.discord_id ? ` · <span class="mono">${esc(m.discord_id)}</span>` : ''}</div>
+          <div class="rev-titulo ${rev ? 'revisado' : ''}">${esEliteSinSGT(m) ? '' : esc(m.grado) + ' '}${esc(m.nombre)}
+            ${ELITES[m.elite] ? `<span class="etiqueta admin" title="${esc(ELITES[m.elite])}">${esc(m.elite)}</span>` : ''}</div>
+          <div class="tenue" style="font-size:12.5px">${esc(CATS_REVISION.find(g => entraEnGrupoRev(g, m))?.titulo || tituloCat(m.categoria))}${m.discord_id ? ` · <span class="mono">${esc(m.discord_id)}</span>` : ''}</div>
         </div>
-        <a class="btn chico" href="#/perfil?id=${m.id}">Perfil completo →</a>
+        <a class="btn chico" href="#/perfil?id=${m.id}">Perfil →</a>
       </div>
       <div class="rev-total">
-        <div><span class="rev-total-n">${acts.length}</span><span class="dato-etiqueta">actividad${acts.length === 1 ? '' : 'es'} en ${esc(txtPeriodo)}</span></div>
-        <div class="rev-total-sub"><span><strong>${organizo}</strong> organizó</span><span><strong>${acts.length - organizo}</strong> participó</span></div>
+        <div class="rev-total-izq"><span class="rev-total-n">${acts.length}</span>
+          <span class="dato-etiqueta">actividad${acts.length === 1 ? '' : 'es'}<br>en ${esc(txtPeriodo())}</span></div>
+        <div class="rev-total-tipos">${ordenTipos.length ? ordenTipos.map(t => `<span>${esc(tipoNombre(t))} <b>${porTipo[t]}</b></span>`).join('') : '<span class="tenue">Sin actividades</span>'}</div>
       </div>
-      ${ordenTipos.length ? `<div class="rev-chips">${ordenTipos.map(t => `<span class="rev-chip">${etiquetaTipoAct(t, tipoNombre(t))}<b>${porTipo[t]}</b></span>`).join('')}</div>` : ''}
+      ${puedeRevisar ? `<button class="btn ${rev ? '' : 'primario'} rev-marcar" data-revisar="${m.id}">${rev ? '✓ Revisado · desmarcar' : 'Marcar como revisado'}</button>`
+        : rev ? '<p class="txt-ok" style="margin:0 0 10px">✓ Revisado</p>' : ''}
       ${inacs.length ? `<div class="rev-avisos">${inacs.map(x => `<div>☾ <strong>${esc(TIPOS_INACTIVIDAD[x.tipo]?.nombre || 'Inactividad')}</strong>
         del ${new Date(x.desde + 'T00:00:00').toLocaleDateString('es-AR')} al ${new Date(x.hasta + 'T00:00:00').toLocaleDateString('es-AR')}
         · <a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">Ver aviso ↗</a></div>`).join('')}</div>` : ''}
       <h3 class="rev-sub">Desglose</h3>
-      ${acts.length ? `<ul class="rev-acts">${acts.map(a => {
-        const otros = (a.participantes || []).filter(id => id !== m.id);
-        return `<li>
-          <span class="rev-fecha">${fecha(a.fecha)}${a.hora ? `<small>${esc(a.hora)}</small>` : ''}</span>
-          <span class="rev-act-info">
-            <a class="rev-act-link" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer" title="Abrir el informe en Discord">${esc(tipoNombre(a.tipo))}${a.especializacion ? ` · ${esc(ESPECIALIZACIONES_TRY[a.especializacion] || a.especializacion)}` : ''} <span aria-hidden="true">↗</span></a>
-            <small>${a.autor_miembro === m.id ? 'Organizó' : `Participó${a.autor_miembro ? ` · cargó ${esc(etiqueta(a.autor_miembro))}` : ''}`}${otros.length ? ` · con ${otros.length} más` : ''}${a.notas ? ` · <span title="${esc(a.notas)}">${esc(a.notas.slice(0, 50))}${a.notas.length > 50 ? '…' : ''}</span>` : ''}</small>
-          </span>
-          ${etiquetaTipoAct(a.tipo, tipoNombre(a.tipo))}
-        </li>`;
-      }).join('')}</ul>` : `<div class="vacio-chico">Sin actividades registradas en ${esc(txtPeriodo)}.</div>`}`;
+      ${acts.length ? `<ul class="rev-acts">${acts.map(a => filaAct(a, m)).join('')}</ul>` : `<div class="vacio-chico">Sin actividades registradas en ${esc(txtPeriodo())}.</div>`}
+      ${rech.length ? `<h3 class="rev-sub">Rechazadas <span class="tenue">(no suman)</span></h3><ul class="rev-acts">${rech.map(a => filaAct(a, m)).join('')}</ul>` : ''}`;
+  }
+
+  // Panel derecho: la actividad elegida en el desglose, con su información y lo que se puede hacer
+  function pintarPanel() {
+    const a = actividades.find(x => x.id === actSel);
+    const p = $('#rev-panel');
+    if (!a) { p.innerHTML = '<h3>Actividad</h3><div class="vacio-chico">Tocá una actividad del desglose para ver su información.</div>'; return; }
+    const lista = ids => ids?.length ? ids.map(id => `<span class="chip-acomp">${esc(etiqueta(id))}</span>`).join(' ') : '<span class="tenue">—</span>';
+    const acomp = (a.participantes || []).filter(id => id !== a.autor_miembro);
+    const dato = (t, v) => `<div class="rev-dato"><span class="dato-etiqueta">${t}</span><div>${v}</div></div>`;
+    p.innerHTML = `
+      <div class="rev-panel-cab">${etiquetaTipoAct(a.tipo, nombreAct(a))}${a.rechazada ? '<span class="pastilla mal">Rechazada</span>' : ''}</div>
+      ${dato('Fecha', `${esc(new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }))}${a.hora ? ' · ' + esc(a.hora) : ''}`)}
+      ${dato('Cargada por', a.autor_miembro ? esc(etiqueta(a.autor_miembro)) : '—')}
+      ${dato('Con', lista(acomp))}
+      ${(a.ayudantes || []).length ? dato('Ayudantes', lista(a.ayudantes)) : ''}
+      ${a.notas ? dato('Notas', `<span style="white-space:pre-wrap">${esc(a.notas)}</span>`) : ''}
+      ${dato('Registrada el', a.creado_en ? esc(new Date(a.creado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })) : '—')}
+      ${a.rechazada ? dato('Motivo del rechazo', a.rechazo_motivo ? esc(a.rechazo_motivo) : '<span class="tenue">Sin motivo</span>') : ''}
+      <div class="rev-panel-acc">
+        ${a.link ? `<a class="btn" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Ver informe en Discord ↗</a>` : ''}
+        ${puedeRevisar ? (a.rechazada ? `<button class="btn" data-restaurar="${a.id}">Restaurar actividad</button>`
+          : `<button class="btn peligro" data-rechazar="${a.id}">Rechazar actividad</button>`) : ''}
+      </div>
+      ${puedeRevisar && !a.rechazada ? '<p class="ayuda" style="margin:0">Rechazar sirve para una actividad mal cargada o que no debe contar: deja de sumar en las planillas de todos los que figuran en ella.</p>' : ''}`;
   }
 
   function seleccionar(id) {
-    seleccion = id;
+    seleccion = id; actSel = null;
     $$('#rev-miembros .rev-item').forEach(b => b.classList.toggle('activo', +b.dataset.id === id));
     $('#rev-miembros .rev-item.activo')?.scrollIntoView({ block: 'nearest' });
     history.replaceState(null, '', `#/revision?id=${id}`);
-    pintarDetalle();
+    pintarDetalle(); pintarPanel();
+  }
+
+  function pintarPeriodo() {
+    $('#rev-anio').textContent = periodo.anio;
+    $$('#rev-meses .mes').forEach(b => {
+      const n = +b.dataset.mes;
+      b.classList.toggle('activo', n === periodo.mes);
+      b.classList.toggle('actual', periodo.anio === hoy.getFullYear() && n === hoy.getMonth() + 1);
+    });
   }
 
   async function cargar() {
-    $('#rev-mes').textContent = periodo ? `${MESES[periodo.mes - 1]} ${periodo.anio}` : 'Todo el historial';
-    $('#rev-todo').classList.toggle('primario', !periodo);
-    let desde = '2000-01-01', hasta = '2100-12-31';
-    if (periodo) {
-      desde = fechaISO(new Date(periodo.anio, periodo.mes - 1, 1));
-      hasta = fechaISO(new Date(periodo.anio, periodo.mes, 0));
-    }
+    pintarPeriodo();
+    const desde = fechaISO(new Date(periodo.anio, periodo.mes - 1, 1)), hasta = fechaISO(new Date(periodo.anio, periodo.mes, 0));
     $('#rev-detalle').innerHTML = '<div class="vacio-chico">Cargando…</div>';
-    [actividades, inactividades] = await Promise.all([api.listarActividadesEntre(desde, hasta), api.listarInactividadesEntre(desde, hasta)]);
-    const ids = new Set(miembros.filter(m => CATS_REVISION.some(g => g.cat === m.categoria)).map(m => m.id));
-    const total = actividades.length, conAlguno = [...ids].filter(id => actsDe(id).length).length;
-    $('#rev-resumen').textContent = `${total} actividad${total === 1 ? '' : 'es'} cargadas · ${conAlguno} de ${ids.size} con al menos una`;
-    pintarLista(); pintarDetalle();
+    const [acts, inacs, revs] = await Promise.all([api.listarActividadesEntre(desde, hasta, true), api.listarInactividadesEntre(desde, hasta),
+      api.listarRevisados(periodo.anio, periodo.mes).catch(() => [])]);
+    actividades = acts; inactividades = inacs; revisados = new Set(revs.map(r => r.miembro_id));
+    const ids = miembros.filter(m => CATS_REVISION.some(g => entraEnGrupoRev(g, m))).map(m => m.id);
+    const total = vigentes().length, conAlguno = ids.filter(id => actsDe(id).length).length, rev = ids.filter(id => revisados.has(id)).length;
+    $('#rev-resumen').textContent = `${total} actividad${total === 1 ? '' : 'es'} cargadas en ${txtPeriodo()} · ${conAlguno} de ${ids.length} con al menos una · ${rev} revisado${rev === 1 ? '' : 's'}`;
+    if (actSel && !actividades.some(a => a.id === actSel)) actSel = null;
+    pintarLista(); pintarDetalle(); pintarPanel();
+  }
+
+  async function marcar(id) {
+    const nuevo = !revisados.has(id);
+    try {
+      await api.marcarRevisado(id, periodo.anio, periodo.mes, nuevo);
+      nuevo ? revisados.add(id) : revisados.delete(id);
+      pintarLista(); if (id === seleccion) pintarDetalle();
+    } catch (e) { fallo(e); }
   }
 
   [miembros, tipos] = await Promise.all([api.listarMiembros(), api.listarTiposActividad()]);
   miembros = miembros.filter(m => m.activo);
 
-  $$('[data-mov]', cont).forEach(b => b.onclick = () => {
-    const base = periodo || { anio: hoy.getFullYear(), mes: hoy.getMonth() + 1 };
-    const d = new Date(base.anio, base.mes - 1 + (+b.dataset.mov), 1);
-    periodo = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo);
-  });
-  $('#rev-actual').onclick = () => { periodo = { anio: hoy.getFullYear(), mes: hoy.getMonth() + 1 }; cargar().catch(fallo); };
-  $('#rev-todo').onclick = () => { periodo = null; cargar().catch(fallo); };
+  $$('[data-anio]', cont).forEach(b => b.onclick = () => { periodo = { anio: periodo.anio + +b.dataset.anio, mes: periodo.mes }; actSel = null; cargar().catch(fallo); });
+  $('#rev-meses').onclick = ev => { const b = ev.target.closest('.mes'); if (!b) return; periodo = { anio: periodo.anio, mes: +b.dataset.mes }; actSel = null; cargar().catch(fallo); };
   $('#rev-buscar').oninput = ev => { filtro = ev.target.value; pintarLista(); pintarDetalle(); };
   $('#rev-buscar').onkeydown = ev => { if (ev.key === 'ArrowDown') { ev.preventDefault(); $('#rev-miembros').focus(); mover(1); } };
-  $('#rev-miembros').onclick = ev => { const b = ev.target.closest('.rev-item'); if (b) seleccionar(+b.dataset.id); };
+  $('#rev-miembros').onclick = ev => {
+    const r = ev.target.closest('[data-revisar]'); if (r) { ev.stopPropagation(); return marcar(+r.dataset.revisar); }
+    const b = ev.target.closest('.rev-item'); if (b) seleccionar(+b.dataset.id);
+  };
+  $('#rev-detalle').onclick = ev => {
+    const r = ev.target.closest('[data-revisar]'); if (r) return marcar(+r.dataset.revisar);
+    if (ev.target.closest('[data-sin-abrir]')) return;   // el link a Discord se abre sin tocar el panel
+    const li = ev.target.closest('[data-act]'); if (!li) return;
+    actSel = +li.dataset.act;
+    $$('#rev-detalle [data-act]').forEach(x => x.classList.toggle('activa', x === li));
+    pintarPanel();
+    if (window.innerWidth <= 1300) $('#rev-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  $('#rev-detalle').onkeydown = ev => { if (ev.key === 'Enter' && ev.target.matches('[data-act]')) ev.target.click(); };
+  $('#rev-panel').onclick = async ev => {
+    const rc = ev.target.closest('[data-rechazar]'), rs = ev.target.closest('[data-restaurar]');
+    if (rc) {
+      const a = actividades.find(x => x.id === +rc.dataset.rechazar);
+      abrirModal('Rechazar actividad', `
+        <form id="form-rechazo">
+          <p style="margin:0 0 12px">${etiquetaTipoAct(a.tipo, nombreAct(a))} del ${esc(new Date(a.fecha + 'T00:00:00').toLocaleDateString('es-AR'))}.
+            Deja de sumar en las planillas de ${(a.participantes || []).length + (a.ayudantes || []).length} persona${(a.participantes || []).length + (a.ayudantes || []).length === 1 ? '' : 's'}.</p>
+          <label class="campo"><span>Motivo <small class="tenue">(opcional)</small></span><textarea name="motivo" maxlength="300" placeholder="Ej.: informe duplicado, no corresponde a este tipo, faltan pruebas…"></textarea></label>
+          <div class="modal-pie"><button type="button" class="btn" data-cancelar>Cancelar</button><button class="btn peligro">Rechazar</button></div>
+        </form>`, c => {
+        $('[data-cancelar]', c).onclick = cerrarModal;
+        $('#form-rechazo', c).onsubmit = async e2 => {
+          e2.preventDefault();
+          try { await api.rechazarActividad(a.id, e2.target.motivo.value.trim()); cerrarModal(); aviso('Actividad rechazada: ya no suma.'); await cargar(); } catch (er) { fallo(er); }
+        };
+      });
+    }
+    if (rs) {
+      const a = actividades.find(x => x.id === +rs.dataset.restaurar);
+      if (!await confirmar('Restaurar actividad', `"${nombreAct(a)}" vuelve a sumar en las planillas.`, 'Restaurar')) return;
+      try { await api.restaurarActividad(a.id); aviso('Actividad restaurada.'); await cargar(); } catch (er) { fallo(er); }
+    }
+  };
   function mover(d) {
     const ids = $$('#rev-miembros .rev-item').map(b => +b.dataset.id);
     if (!ids.length) return;
@@ -3063,6 +3147,7 @@ async function vistaRevision(cont) {
   }
   $('#rev-miembros').onkeydown = ev => {
     if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); mover(ev.key === 'ArrowDown' ? 1 : -1); }
+    if (ev.key === ' ' && puedeRevisar && seleccion) { ev.preventDefault(); marcar(seleccion); }
   };
   await cargar();
 }
