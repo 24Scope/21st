@@ -1547,16 +1547,25 @@ async function vistaCalendario(cont) {
       <button class="btn chico" data-mov="1" aria-label="Mes siguiente">›</button>
       <button class="btn chico" id="cal-hoy">Hoy</button>
       <span class="espacio" style="flex:1"></span>
-      ${editable ? '<button class="btn primario" id="cal-nuevo">+ Nuevo evento</button>' : ''}
+      ${editable ? '<button class="btn primario" id="cal-nuevo">+ Nueva actividad</button>' : ''}
     </div>
-    <div class="cal" id="cal"></div>
-    <div class="leyenda">${TIPOS_EVENTO.map(t => `<span><i class="punto" style="background:${t.color}"></i>${esc(t.nombre)}</span>`).join('')}</div>`;
+    <div class="cal-layout">
+      <div>
+        <div class="cal" id="cal"></div>
+        <div class="leyenda">${TIPOS_EVENTO.map(t => `<span><i class="punto" style="background:${t.color}"></i>${esc(t.nombre)}</span>`).join('')}</div>
+      </div>
+      <aside class="tarjeta cal-panel" id="cal-panel"></aside>
+    </div>`;
 
   let eventos = [];
   const miembrosCal = await api.listarMiembros().catch(() => []);
   const porIdCal = new Map(miembrosCal.map(m => [m.id, m]));
   const candidatosCal = ordenarMiembros(miembrosCal.filter(m => m.activo));
   const nombreOrg = id => { const m = porIdCal.get(id); return m ? `${m.grado} ${m.nombre}` : '¿?'; };
+  // Editar o borrar: quien la cargó, quien la programa o un Comandante en adelante (la base lo vuelve a controlar)
+  const puedoEditarEv = e => editable && (estado.perfil.rango >= 6 || e.creado_por === estado.perfil.id
+    || (!!estado.perfil.miembro_id && (e.organizadores || []).includes(estado.perfil.miembro_id)));
+  let diaSel = fechaISO(new Date()), abierto = null;
   const resumirDesc = (t, n = 90) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; };
 
   async function cargar() {
@@ -1570,7 +1579,7 @@ async function vistaCalendario(cont) {
     $('#cal').innerHTML = DIAS.map(d => `<div class="cal-dia-nombre">${d}</div>`).join('') + dias.map(d => {
       const iso = fechaISO(d);
       const evs = eventos.filter(e => e.fecha === iso);
-      return `<div class="cal-dia ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso < hoy ? 'pasado' : ''} ${editable && iso >= hoy ? 'puede' : ''}" data-fecha="${iso}">
+      return `<div class="cal-dia puede ${d.getMonth() !== mes - 1 ? 'fuera' : ''} ${iso === hoy ? 'hoy' : ''} ${iso < hoy ? 'pasado' : ''} ${iso === diaSel ? 'elegido' : ''}" data-fecha="${iso}">
         <span class="cal-num">${d.getDate()}</span>
         ${evs.map(e => `<button class="cal-evento" style="background:${colorTipo(e.tipo)}" data-evento="${e.id}"
             title="${esc((e.hora ? e.hora + ' · ' : '') + e.titulo + (e.descripcion ? `\n“${e.descripcion}”` : '') + ((e.organizadores || []).length ? '\nProgramado por: ' + e.organizadores.map(nombreOrg).join(', ') : ''))}">
@@ -1579,10 +1588,40 @@ async function vistaCalendario(cont) {
             ${(e.organizadores || []).length ? `<span class="cal-ev-org">${esc(e.organizadores.map(id => porIdCal.get(id)?.nombre || '¿?').join(', '))}</span>` : ''}</button>`).join('')}
       </div>`;
     }).join('');
+    pintarPanel();
+  }
+
+  // Panel derecho: las actividades del día elegido; cada una se expande para ver los detalles
+  function pintarPanel() {
+    const d = new Date(diaSel + 'T00:00:00'), hoy = fechaISO(new Date());
+    const delDia = eventos.filter(e => e.fecha === diaSel).sort((a, b) => (a.hora || '99').localeCompare(b.hora || '99'));
+    const cargado = delDia.length || eventos.some(e => e.fecha === diaSel) || $(`[data-fecha="${diaSel}"]`, cont);
+    $('#cal-panel').innerHTML = `
+      <div class="cal-panel-cab">
+        <h3>${esc(d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }))}</h3>
+        <span class="dato-etiqueta">${delDia.length ? `${delDia.length} actividad${delDia.length === 1 ? '' : 'es'}` : ''}</span>
+      </div>
+      ${!cargado ? '<div class="vacio">Elegí un día del calendario.</div>' : delDia.length ? delDia.map(e => {
+        const ab = abierto === e.id;
+        return `<div class="cal-item ${ab ? 'abierto' : ''}" style="--c:${colorTipo(e.tipo)}">
+          <button class="cal-item-cab" data-abrir="${e.id}" aria-expanded="${ab}">
+            <span class="cal-item-hora">${esc(e.hora || '—')}</span>
+            <span class="cal-item-tit"><strong>${esc(e.titulo)}</strong><small>${esc(e.tipo || 'Actividad')}</small></span>
+            <span class="cal-item-flecha">${ab ? '▴' : '▾'}</span>
+          </button>
+          ${ab ? `<div class="cal-item-det">
+            <p class="cal-item-desc">${esc(e.descripcion) || '<span class="tenue">Sin descripción.</span>'}</p>
+            <div><span class="dato-etiqueta">Programada por</span><div>${(e.organizadores || []).length ? e.organizadores.map(id => `<span class="chip-acomp">${esc(nombreOrg(id))}</span>`).join(' ') : '<span class="tenue">—</span>'}</div></div>
+            ${puedoEditarEv(e) ? `<div class="cal-item-acc"><button class="btn chico" data-editar-ev="${e.id}">Editar</button>
+              <button class="btn chico peligro" data-borrar-ev="${e.id}">Borrar</button></div>` : ''}
+          </div>` : ''}
+        </div>`;
+      }).join('') : '<div class="vacio">No hay actividades planeadas este día.</div>'}
+      ${editable && diaSel >= hoy ? '<button class="btn primario cal-panel-nuevo" id="cal-nuevo-dia">+ Nueva actividad este día</button>' : ''}`;
   }
 
   function formulario(e) {
-    const soloVer = !editable;
+    const soloVer = e.id ? !puedoEditarEv(e) : !editable;
     const opciones = TIPOS_EVENTO.map(t => `<option ${t.nombre === e.tipo ? 'selected' : ''}>${esc(t.nombre)}</option>`).join('');
     abrirModal(soloVer ? e.titulo : (e.id ? 'Editar evento' : 'Nuevo evento'), soloVer ? `
       <p class="dato-etiqueta" style="margin:0 0 6px"><i class="punto" style="display:inline-block;background:${colorTipo(e.tipo)}"></i> ${esc(e.tipo)}</p>
@@ -1658,7 +1697,9 @@ async function vistaCalendario(cont) {
         try {
           await api.guardarEvento({ ...(e.id ? { id: e.id } : {}), titulo: f.titulo.value.trim(), fecha: f.fecha.value,
             hora: f.hora.value, tipo: f.tipo.value, descripcion: f.descripcion.value.trim(), organizadores: orgs });
-          cerrarModal(); aviso('Evento guardado.'); await cargar();
+          cerrarModal(); aviso('Actividad guardada.');
+          if (!e.id || f.fecha.value !== e.fecha) diaSel = f.fecha.value;
+          await cargar();
         } catch (er) { fallo(er); }
       };
       const b = $('[data-borrar]', c);
@@ -1676,16 +1717,32 @@ async function vistaCalendario(cont) {
     const d = new Date(estado.cal.anio, estado.cal.mes - 1 + +b.dataset.mov, 1);
     estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo);
   });
-  $('#cal-hoy').onclick = () => { const d = new Date(); estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo); };
+  $('#cal-hoy').onclick = () => { const d = new Date(); diaSel = fechaISO(d); abierto = null; estado.cal = { anio: d.getFullYear(), mes: d.getMonth() + 1 }; cargar().catch(fallo); };
   if (editable) $('#cal-nuevo').onclick = () => formulario(nuevo(fechaISO(new Date())));
+  // Clic en un día: lo elige y muestra sus actividades a la derecha. Clic en una actividad: además la abre.
   $('#cal').onclick = ev => {
+    const dia = ev.target.closest('[data-fecha]'); if (!dia) return;
     const be = ev.target.closest('[data-evento]');
-    if (be) return formulario(eventos.find(e => e.id == be.dataset.evento));
-    const dia = ev.target.closest('[data-fecha]');
-    if (dia && editable) {
-      if (dia.dataset.fecha < fechaISO(new Date())) return aviso('Ese día ya pasó: no se pueden programar eventos ahí.');
-      formulario(nuevo(dia.dataset.fecha));
+    diaSel = dia.dataset.fecha;
+    abierto = be ? +be.dataset.evento : null;
+    $$('.cal-dia.elegido', cont).forEach(x => x.classList.remove('elegido'));
+    dia.classList.add('elegido');
+    pintarPanel();
+    if (window.innerWidth <= 1100) $('#cal-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  $('#cal-panel').onclick = async ev => {
+    const ab = ev.target.closest('[data-abrir]');
+    if (ab) { abierto = abierto === +ab.dataset.abrir ? null : +ab.dataset.abrir; return pintarPanel(); }
+    const ed = ev.target.closest('[data-editar-ev]');
+    if (ed) return formulario(eventos.find(e => e.id == ed.dataset.editarEv));
+    const bo = ev.target.closest('[data-borrar-ev]');
+    if (bo) {
+      const e = eventos.find(x => x.id == bo.dataset.borrarEv);
+      if (!await confirmar('Borrar actividad', `¿Borrar "${e.titulo}"?`, 'Borrar')) return;
+      try { await api.borrarEvento(e.id); abierto = null; aviso('Actividad borrada.'); await cargar(); } catch (er) { fallo(er); }
+      return;
     }
+    if (ev.target.closest('#cal-nuevo-dia')) formulario(nuevo(diaSel));
   };
   estado.limpiezas.push(api.suscribir('eventos', () => { if ($('#modal-fondo').hidden) cargar().catch(() => {}); }));
   await cargar();
